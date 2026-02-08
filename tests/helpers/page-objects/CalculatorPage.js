@@ -17,31 +17,30 @@ export class CalculatorPage {
     this.otdPriceTab = page.locator('.mode-tab').filter({ hasText: /OTD|🎯/ }).first();
 
     // Deal settings
-    this.salePercentSelect = page.locator('select').filter({ hasText: /30%|35%|40%/ }).or(page.locator('select').first());
-    this.noTaxPromoToggle = page.getByRole('checkbox').filter({ hasText: /No-Tax Promo|tax promo/i }).or(
-      page.locator('label').filter({ hasText: /No-Tax Promo/i }).locator('input')
-    );
-    this.priceTypeSelect = page.locator('select').filter({ hasText: /Tag Price|Sale Price/ }).or(page.locator('select').nth(1));
-    this.deliverySelect = page.locator('select').filter({ hasText: /\$/ }).or(page.locator('select').last());
+    this.settingsHeader = page.locator('.settings-accordion-header');
+    this.settingsGrid = page.locator('.settings-grid').first();
+    this.noTaxPromoToggle = page.locator('.toggle-compact').first();
 
     // Calculate button
-    this.calculateButton = page.getByRole('button', { name: /Calculate|Get Quote|Check|Analyze/i });
+    this.calculateButton = page.locator('.calc-btn-enhanced').first();
 
     // Results modal
-    this.resultsModal = page.locator('.results-overlay, .modal-overlay').first();
-    this.resultsContent = page.locator('.results-modal, .modal-content').first();
-    this.closeResultsButton = page.getByRole('button', { name: /Close|×/ }).first();
-    this.copyButton = page.getByRole('button', { name: /Copy/i });
+    this.resultsModal = page.locator('.result-overlay').first();
+    this.resultsContent = page.locator('.sheet-content').first();
+    this.closeResultsButton = page.locator('.sheet-close').first();
+    this.copyButton = page.locator('.copy-block').first();
 
     // Help and tutorial
-    this.helpButton = page.getByRole('button', { name: /Help|\?/i });
+    this.menuButton = page.locator('.header-menu-btn');
+    this.menu = page.locator('.header-menu');
+    this.helpButton = page.locator('.header-menu-item').filter({ hasText: /Help|❓/i }).first();
     this.helpModal = page.locator('.help-modal');
     this.helperOverlay = page.locator('.helper-overlay');
     this.helperNextButton = page.getByRole('button', { name: /Next/i });
     this.helperSkipButton = page.getByRole('button', { name: /Skip|Got it/i });
 
     // Start Over
-    this.startOverButton = page.getByRole('button', { name: /Start Over|Reset/i });
+    this.startOverButton = page.locator('.header-reset-btn').first();
     this.confirmResetButton = page.getByRole('button', { name: /Yes|Confirm/i });
     this.cancelResetButton = page.getByRole('button', { name: /No|Cancel/i });
   }
@@ -58,6 +57,14 @@ export class CalculatorPage {
    */
   async waitForLoad() {
     await this.modeTabs.waitFor({ state: 'visible' });
+  }
+
+  async ensureSettingsOpen() {
+    const isVisible = await this.settingsGrid.isVisible().catch(() => false);
+    if (!isVisible) {
+      await this.settingsHeader.click();
+      await this.settingsGrid.waitFor({ state: 'visible' });
+    }
   }
 
   // ============ Mode Selection ============
@@ -104,7 +111,9 @@ export class CalculatorPage {
    * @param {number} percent - Sale percentage (30, 35, or 40)
    */
   async setSalePercent(percent) {
-    await this.salePercentSelect.selectOption(`${percent}`);
+    await this.ensureSettingsOpen();
+    const pill = this.page.locator('.pill-compact').filter({ hasText: `${percent}%` }).first();
+    await pill.click();
   }
 
   /**
@@ -112,11 +121,17 @@ export class CalculatorPage {
    * @param {boolean} enabled - True to enable, false to disable
    */
   async setNoTaxPromo(enabled) {
-    const checkbox = this.noTaxPromoToggle;
-    const isChecked = await checkbox.isChecked();
-
-    if (enabled !== isChecked) {
-      await checkbox.click();
+    await this.ensureSettingsOpen();
+    const toggle = this.noTaxPromoToggle;
+    let className = await toggle.getAttribute('class');
+    let isOn = className?.includes('on');
+    if (enabled !== isOn) {
+      await toggle.click({ force: true });
+      className = await toggle.getAttribute('class');
+      isOn = className?.includes('on');
+      if (enabled !== isOn) {
+        await toggle.click({ force: true });
+      }
     }
   }
 
@@ -125,8 +140,12 @@ export class CalculatorPage {
    * @param {string} type - 'tag' or 'sale'
    */
   async setPriceType(type) {
-    const value = type === 'tag' ? 'tag' : 'sale';
-    await this.priceTypeSelect.selectOption(value);
+    await this.ensureSettingsOpen();
+    const normalized = String(type || '').toLowerCase();
+    const isTag = normalized.includes('tag') || normalized.includes('retail');
+    const label = isTag ? 'Retail' : 'Sale';
+    const pill = this.page.locator('.pill-compact').filter({ hasText: new RegExp(`^${label}$`, 'i') }).first();
+    await pill.click();
   }
 
   /**
@@ -134,7 +153,36 @@ export class CalculatorPage {
    * @param {number} amount - Delivery amount (0, 100, 135, or 150)
    */
   async setDelivery(amount) {
-    await this.deliverySelect.selectOption(`${amount}`);
+    await this.ensureSettingsOpen();
+    const pill = this.page.locator('.pill-compact').filter({ hasText: new RegExp(`^\\$${amount}$`) }).first();
+    await pill.click();
+  }
+
+  async getSalePercent() {
+    await this.ensureSettingsOpen();
+    const selected = this.page.locator('.pill-compact.selected').filter({ hasText: /%/ }).first();
+    const text = (await selected.textContent()) || '';
+    return parseInt(text.replace('%', ''), 10);
+  }
+
+  async getNoTaxPromo() {
+    await this.ensureSettingsOpen();
+    const className = await this.noTaxPromoToggle.getAttribute('class');
+    return className?.includes('on') || false;
+  }
+
+  async getPriceType() {
+    await this.ensureSettingsOpen();
+    const selected = this.page.locator('.pill-compact.selected').filter({ hasText: /Sale|Retail/i }).first();
+    const text = (await selected.textContent()) || '';
+    return /Retail/i.test(text) ? 'tag' : 'sale';
+  }
+
+  async getDelivery() {
+    await this.ensureSettingsOpen();
+    const selected = this.page.locator('.pill-compact.selected').filter({ hasText: /\$/ }).first();
+    const text = (await selected.textContent()) || '';
+    return parseInt(text.replace('$', ''), 10);
   }
 
   // ============ Item Management ============
@@ -144,14 +192,14 @@ export class CalculatorPage {
    * @param {number} index - Item index
    */
   getItemRow(index) {
-    return this.page.locator('.item-row, .item-card, [data-item]').nth(index);
+    return this.page.locator('.item-card-compact, [data-item]').nth(index);
   }
 
   /**
    * Get total number of items
    */
   async getItemCount() {
-    return await this.page.locator('.item-row, .item-card, [data-item]').count();
+    return await this.page.locator('.item-card-compact, [data-item]').count();
   }
 
   /**
@@ -179,17 +227,12 @@ export class CalculatorPage {
    */
   async setItemPreset(itemIndex, presetName) {
     const itemRow = this.getItemRow(itemIndex);
-    const presetButton = itemRow.getByRole('button', { name: presetName });
-
-    // Check if preset is in "More" section
-    if (!(await presetButton.isVisible())) {
-      const moreButton = itemRow.getByRole('button', { name: /More|\.\.\./ });
-      if (await moreButton.isVisible()) {
-        await moreButton.click();
-      }
+    const backButton = itemRow.getByRole('button', { name: /Back to presets/i });
+    if (await backButton.isVisible().catch(() => false)) {
+      await backButton.click();
     }
-
-    await presetButton.click();
+    const select = itemRow.locator('select');
+    await select.selectOption({ label: presetName });
   }
 
   /**
@@ -199,15 +242,13 @@ export class CalculatorPage {
    */
   async setCustomItemName(itemIndex, name) {
     const itemRow = this.getItemRow(itemIndex);
-
-    // Click "Custom" button to show input
-    const customButton = itemRow.getByRole('button', { name: /Custom|Other/ });
-    await customButton.click();
-
-    // Enter custom name
+    const select = itemRow.locator('select');
+    if (await select.isVisible().catch(() => false)) {
+      await select.selectOption({ value: 'custom' });
+    }
     const nameInput = itemRow.locator('input[type="text"]').first();
     await nameInput.fill(name);
-    await nameInput.blur(); // Trigger save
+    await nameInput.blur();
   }
 
   /**
@@ -217,10 +258,14 @@ export class CalculatorPage {
    */
   async setItemPrice(itemIndex, price) {
     const itemRow = this.getItemRow(itemIndex);
-    const priceButton = itemRow.locator('button').filter({ hasText: /Price|\$/ }).first();
-
-    await priceButton.click();
-    await this.dialPicker.enterAndConfirm(price);
+    const wheelButton = itemRow.locator('.wheel-btn-compact').first();
+    if (await wheelButton.isVisible()) {
+      await wheelButton.click();
+      await this.dialPicker.enterAndConfirm(price);
+      return;
+    }
+    const priceInput = itemRow.locator('input[placeholder="$0.00"]').first();
+    await priceInput.fill(`${price}`);
   }
 
   /**
@@ -230,10 +275,18 @@ export class CalculatorPage {
    */
   async setItemLandingCost(itemIndex, cost) {
     const itemRow = this.getItemRow(itemIndex);
-    const costButton = itemRow.locator('button').filter({ hasText: /Landing|Cost/ }).first();
-
-    await costButton.click();
-    await this.dialPicker.enterAndConfirm(cost);
+    const wheelButtons = itemRow.locator('.wheel-btn-compact');
+    const count = await wheelButtons.count();
+    const targetIndex = count > 1 ? 1 : 0;
+    const wheelButton = wheelButtons.nth(targetIndex);
+    if (await wheelButton.isVisible()) {
+      await wheelButton.click();
+      await this.dialPicker.enterAndConfirm(cost);
+      return;
+    }
+    const inputs = itemRow.locator('input[placeholder="$0.00"]');
+    const inputIndex = count > 1 ? 1 : 0;
+    await inputs.nth(inputIndex).fill(`${cost}`);
   }
 
   /**
@@ -266,9 +319,15 @@ export class CalculatorPage {
    * @param {number} price - OTD price amount
    */
   async setOtdPrice(price) {
-    const otdButton = this.page.locator('button').filter({ hasText: /OTD|Out.*Door/i }).first();
-    await otdButton.click();
-    await this.dialPicker.enterAndConfirm(price);
+    const otdCard = this.page.locator('.card').filter({ hasText: /OTD/i }).first();
+    const wheelButton = otdCard.locator('.wheel-btn').first();
+    if (await wheelButton.isVisible()) {
+      await wheelButton.click();
+      await this.dialPicker.enterAndConfirm(price);
+      return;
+    }
+    const input = otdCard.locator('input[placeholder="$0.00"]').first();
+    await input.fill(`${price}`);
   }
 
   // ============ Calculate & Results ============
@@ -309,6 +368,15 @@ export class CalculatorPage {
     await this.copyButton.click();
   }
 
+  async openResultSection(title) {
+    const section = this.resultsContent.locator('details.result-section').filter({ hasText: title }).first();
+    const isOpen = await section.getAttribute('open');
+    if (isOpen === null) {
+      await section.locator('summary').click();
+    }
+    return section;
+  }
+
   /**
    * Get result value by label
    * @param {string} label - Label text (e.g., 'Total', 'Margin', 'Profit')
@@ -323,6 +391,7 @@ export class CalculatorPage {
    * Open help modal
    */
   async openHelp() {
+    await this.menuButton.click();
     await this.helpButton.click();
     await this.helpModal.waitFor({ state: 'visible' });
   }
@@ -331,7 +400,7 @@ export class CalculatorPage {
    * Close help modal
    */
   async closeHelp() {
-    const closeButton = this.helpModal.getByRole('button', { name: /Close|×/ });
+    const closeButton = this.helpModal.getByRole('button', { name: /Got it|Close|×/i });
     await closeButton.click();
   }
 
@@ -339,7 +408,8 @@ export class CalculatorPage {
    * Start tutorial/helper
    */
   async startHelper() {
-    const helperButton = this.page.getByRole('button', { name: /Tutorial|Helper|Guide/i });
+    await this.menuButton.click();
+    const helperButton = this.page.locator('.header-menu-item').filter({ hasText: /Guide|Helper|Tutorial/i }).first();
     await helperButton.click();
   }
 
@@ -424,8 +494,16 @@ export class CalculatorPage {
       }
     }
 
-    if (itemData.price !== undefined) {
-      await this.setItemPrice(itemIndex, itemData.price);
+    const priceValue = itemData.price !== undefined
+      ? itemData.price
+      : itemData.salePrice !== undefined
+        ? itemData.salePrice
+        : itemData.tagPrice !== undefined
+          ? itemData.tagPrice
+          : undefined;
+
+    if (priceValue !== undefined) {
+      await this.setItemPrice(itemIndex, priceValue);
     }
 
     if (itemData.landingCost !== undefined) {

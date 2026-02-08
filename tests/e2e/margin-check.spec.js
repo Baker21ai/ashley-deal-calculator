@@ -28,12 +28,12 @@ test.describe('Margin Check Mode', () => {
     await calc.waitForResults();
 
     // Verify margin is shown
-    const marginLocator = calc.resultsContent.locator('text=/50.*%|Margin/i');
-    await expect(marginLocator).toBeVisible();
+    const marginLocator = calc.resultsContent.locator('.badge').first();
+    await expectMargin(marginLocator, 50, 1);
 
     // Verify green indicator (✓ Great or similar)
-    const statusLocator = calc.resultsContent.locator('text=/Great|✓/i');
-    await expect(statusLocator).toBeVisible();
+    const statusLocator = calc.resultsContent.locator('.badge').first();
+    await expect(statusLocator).toContainText(/Great|✓/i);
 
     await calc.closeResults();
   });
@@ -48,12 +48,12 @@ test.describe('Margin Check Mode', () => {
     await calc.waitForResults();
 
     // Verify margin is shown
-    const marginLocator = calc.resultsContent.locator('text=/49.*%|Margin/i');
-    await expect(marginLocator).toBeVisible();
+    const marginLocator = calc.resultsContent.locator('.badge').first();
+    await expectMargin(marginLocator, 49, 1);
 
     // Verify orange indicator (⚠️ OK or similar)
-    const statusLocator = calc.resultsContent.locator('text=/OK|⚠/i');
-    await expect(statusLocator).toBeVisible();
+    const statusLocator = calc.resultsContent.locator('.badge').first();
+    await expect(statusLocator).toContainText(/OK|⚠/i);
 
     await calc.closeResults();
   });
@@ -68,12 +68,12 @@ test.describe('Margin Check Mode', () => {
     await calc.waitForResults();
 
     // Verify margin is shown
-    const marginLocator = calc.resultsContent.locator('text=/47.*%|Margin/i');
-    await expect(marginLocator).toBeVisible();
+    const marginLocator = calc.resultsContent.locator('.badge').first();
+    await expectMargin(marginLocator, 47, 1);
 
     // Verify orange indicator
-    const statusLocator = calc.resultsContent.locator('text=/OK|⚠/i');
-    await expect(statusLocator).toBeVisible();
+    const statusLocator = calc.resultsContent.locator('.badge').first();
+    await expect(statusLocator).toContainText(/OK|⚠/i);
 
     await calc.closeResults();
   });
@@ -88,17 +88,18 @@ test.describe('Margin Check Mode', () => {
     await calc.waitForResults();
 
     // Verify margin is shown (41%)
-    const marginLocator = calc.resultsContent.locator('text=/41.*%|Margin/i');
-    await expect(marginLocator).toBeVisible();
+    const marginLocator = calc.resultsContent.locator('.badge').first();
+    await expectMargin(marginLocator, 41, 1);
 
     // Verify red indicator (✗ Too Low or similar)
-    const statusLocator = calc.resultsContent.locator('text=/Too Low|✗/i');
-    await expect(statusLocator).toBeVisible();
+    const statusLocator = calc.resultsContent.locator('.badge').first();
+    await expect(statusLocator).toContainText(/Too Low|✗/i);
 
     await calc.closeResults();
   });
 
   test('should calculate correct profit amount', async ({ page }) => {
+    await calc.setNoTaxPromo(false);
     await calc.setupItems([
       { name: 'Sofa', price: 1200, landingCost: 600, quantity: 1 }
     ]);
@@ -107,13 +108,14 @@ test.describe('Margin Check Mode', () => {
     await calc.waitForResults();
 
     // Profit should be $1200 - $600 = $600
-    const profitLocator = calc.resultsContent.locator('text=/Profit.*\\$/i');
+    const profitLocator = calc.resultsContent.locator('text=/Total Profit/i').locator('..');
     await expectMoneyValue(profitLocator, 600, 1);
 
     await calc.closeResults();
   });
 
   test('should calculate margin for multiple items', async ({ page }) => {
+    await calc.setNoTaxPromo(false);
     await calc.setupItems([
       { name: 'Sofa', price: 1200, landingCost: 600, quantity: 1 },
       { name: 'Chair', price: 600, landingCost: 300, quantity: 2 }
@@ -125,11 +127,11 @@ test.describe('Margin Check Mode', () => {
     // Total sale: $1200 + ($600 * 2) = $2400
     // Total landing: $600 + ($300 * 2) = $1200
     // Margin: ($2400 - $1200) / $2400 = 50%
-    const marginLocator = calc.resultsContent.locator('text=/50.*%|Margin/i');
-    await expect(marginLocator).toBeVisible();
+    const marginLocator = calc.resultsContent.locator('.badge').first();
+    await expectMargin(marginLocator, 50, 1);
 
     // Total profit: $1200
-    const profitLocator = calc.resultsContent.locator('text=/Profit.*\\$/i');
+    const profitLocator = calc.resultsContent.locator('text=/Total Profit/i').locator('..');
     await expectMoneyValue(profitLocator, 1200, 1);
 
     await calc.closeResults();
@@ -171,6 +173,8 @@ test.describe('Margin Check Mode', () => {
   });
 
   test('should calculate margin accurately with different sale percentages', async ({ page }) => {
+    await calc.setNoTaxPromo(false);
+    await calc.setPriceType('tag');
     const salePercentages = [30, 35, 40];
 
     for (const salePercent of salePercentages) {
@@ -191,8 +195,7 @@ test.describe('Margin Check Mode', () => {
 
       // Calculate expected margin
       const expectedMargin = ((salePrice - landingCost) / salePrice) * 100;
-      const marginLocator = calc.resultsContent.locator('text=/\\d+\\.\\d+%/').first();
-
+      const marginLocator = calc.resultsContent.locator('.badge').first();
       await expectMargin(marginLocator, expectedMargin, 1);
 
       await calc.closeResults();
@@ -223,6 +226,7 @@ test.describe('Margin Check Mode', () => {
   });
 
   test('should handle zero margin (cost equals price)', async ({ page }) => {
+    await calc.setNoTaxPromo(false);
     await calc.setupItems([
       { name: 'Break-even Item', price: 600, landingCost: 600, quantity: 1 }
     ]);
@@ -231,12 +235,12 @@ test.describe('Margin Check Mode', () => {
     await calc.waitForResults();
 
     // Margin should be 0%
-    const marginLocator = calc.resultsContent.locator('text=/0.*%|Margin/i');
-    await expect(marginLocator).toBeVisible();
+    const marginLocator = calc.resultsContent.locator('.badge').first();
+    await expectMargin(marginLocator, 0, 1);
 
     // Should show as too low (red)
-    const statusLocator = calc.resultsContent.locator('text=/Too Low|✗/i');
-    await expect(statusLocator).toBeVisible();
+    const statusLocator = calc.resultsContent.locator('.badge').first();
+    await expect(statusLocator).toContainText(/Too Low|✗/i);
 
     await calc.closeResults();
   });
@@ -247,17 +251,14 @@ test.describe('Margin Check Mode', () => {
       { name: 'Sofa', price: 1200, quantity: 1 }
     ]);
 
-    // Try to calculate - should show alert
-    page.on('dialog', async dialog => {
-      expect(dialog.message().toLowerCase()).toContain('landing');
-      await dialog.accept();
-    });
-
     await calc.calculate();
 
     // Results should not show
     const isVisible = await calc.isResultsVisible();
     expect(isVisible).toBeFalsy();
+
+    const errorText = calc.page.locator('.error-text').filter({ hasText: /landing/i });
+    await expect(errorText).toBeVisible();
   });
 
   test('should handle profit per unit with quantities', async ({ page }) => {
@@ -273,7 +274,7 @@ test.describe('Margin Check Mode', () => {
     const resultsText = await calc.resultsContent.textContent();
 
     // Should show total profit
-    const profitLocator = calc.resultsContent.locator('text=/Profit.*\\$/i');
+    const profitLocator = calc.resultsContent.locator('text=/Total Profit/i').locator('..');
     await expectMoneyValue(profitLocator, 600, 1);
 
     await calc.closeResults();

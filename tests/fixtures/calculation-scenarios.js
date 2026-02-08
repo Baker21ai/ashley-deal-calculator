@@ -26,9 +26,9 @@ export const quickQuoteScenarios = {
       // Quote price: 840 (shown to customer with tax included)
       // Delivery: 135 / 1.09125 = 123.68 (invoice), 135 (quote)
       // Total invoice: 769.54 + 123.68 = 893.22
-      // Total quote: 840 + 135 = 975
+      // Total quote: 840 + 135 + 12.32 (delivery tax) = 987.32
       invoiceTotal: 893.22,
-      quoteTotal: 975,
+      quoteTotal: 987.32,
     }
   },
 

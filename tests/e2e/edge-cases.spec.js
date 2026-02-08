@@ -5,7 +5,7 @@
 import { test, expect } from '@playwright/test';
 import { CalculatorPage } from '../helpers/page-objects/CalculatorPage.js';
 import { expectMoneyValue, expectMargin } from '../helpers/utils/assertions.js';
-import { edgeCaseScenarios, MAX_PRICE, MIN_PRICE } from '../fixtures/test-data.js';
+import { MAX_PRICE, MIN_PRICE } from '../fixtures/test-data.js';
 
 test.describe('Edge Cases', () => {
   let calc;
@@ -25,9 +25,9 @@ test.describe('Edge Cases', () => {
     await calc.calculate();
     await calc.waitForResults();
 
-    // Should show 0% margin
-    const marginLocator = calc.resultsContent.locator('text=/0.*%|Margin/i');
-    await expect(marginLocator).toBeVisible();
+    // Should handle gracefully (no price entered)
+    const resultsText = await calc.resultsContent.textContent();
+    expect(resultsText).toMatch(/Select a Margin Target|Margin/i);
 
     await calc.closeResults();
   });
@@ -42,8 +42,8 @@ test.describe('Edge Cases', () => {
     await calc.waitForResults();
 
     // Margin should be 100% (all profit)
-    const marginLocator = calc.resultsContent.locator('text=/100.*%/i');
-    await expect(marginLocator).toBeVisible();
+    const marginLocator = calc.resultsContent.locator('.margin-badge').first();
+    await expect(marginLocator).toContainText(/100.*%/i);
 
     await calc.closeResults();
   });
@@ -80,6 +80,7 @@ test.describe('Edge Cases', () => {
 
   test('should handle maximum price (99999.99)', async ({ page }) => {
     await calc.switchToMarginCheck();
+    await calc.setNoTaxPromo(false);
     await calc.setItemPrice(0, 99999.99);
     await calc.setItemLandingCost(0, 49999.99);
 
@@ -87,7 +88,7 @@ test.describe('Edge Cases', () => {
     await calc.waitForResults();
 
     // Should show 50% margin
-    const marginLocator = calc.resultsContent.locator('text=/50.*%/i');
+    const marginLocator = calc.resultsContent.locator('.badge').first();
     await expectMargin(marginLocator, 50, 1);
 
     await calc.closeResults();
@@ -95,6 +96,7 @@ test.describe('Edge Cases', () => {
 
   test('should handle decimal precision correctly', async ({ page }) => {
     await calc.switchToMarginCheck();
+    await calc.setNoTaxPromo(false);
     await calc.setItemPrice(0, 123.45);
     await calc.setItemLandingCost(0, 61.73);
 
@@ -125,6 +127,7 @@ test.describe('Edge Cases', () => {
 
   test('should handle very large quantities', async ({ page }) => {
     await calc.switchToMarginCheck();
+    await calc.setNoTaxPromo(false);
     await calc.setItemQuantity(0, 999);
     await calc.setupItems([
       { price: 100, landingCost: 50 }
@@ -134,7 +137,7 @@ test.describe('Edge Cases', () => {
     await calc.waitForResults();
 
     // Total profit: 999 * 50 = $49,950
-    const profitLocator = calc.resultsContent.locator('text=/Profit.*\\$/i');
+    const profitLocator = calc.resultsContent.locator('text=/Total Profit/i').locator('..');
     await expectMoneyValue(profitLocator, 49950, 10);
 
     await calc.closeResults();
@@ -142,6 +145,7 @@ test.describe('Edge Cases', () => {
 
   test('should handle missing item names', async ({ page }) => {
     await calc.switchToMarginCheck();
+    await calc.setNoTaxPromo(false);
     // Don't set a name, just set price and cost
     await calc.setItemPrice(0, 1000);
     await calc.setItemLandingCost(0, 500);
@@ -150,8 +154,8 @@ test.describe('Edge Cases', () => {
     await calc.waitForResults();
 
     // Should still calculate correctly even without name
-    const marginLocator = calc.resultsContent.locator('text=/50.*%/i');
-    await expect(marginLocator).toBeVisible();
+    const marginLocator = calc.resultsContent.locator('.badge').first();
+    await expectMargin(marginLocator, 50, 1);
 
     await calc.closeResults();
   });
@@ -211,6 +215,7 @@ test.describe('Edge Cases', () => {
 
   test('should recalculate after value changes', async ({ page }) => {
     await calc.switchToMarginCheck();
+    await calc.setNoTaxPromo(false);
     await calc.setupItems([
       { price: 1000, landingCost: 500, quantity: 1 }
     ]);
@@ -225,15 +230,16 @@ test.describe('Edge Cases', () => {
     await calc.calculate();
     await calc.waitForResults();
 
-    // Should show new margin (still 50%)
-    const marginLocator = calc.resultsContent.locator('text=/50.*%/i');
-    await expect(marginLocator).toBeVisible();
+    // Should show new margin (price doubled -> 75%)
+    const marginLocator = calc.resultsContent.locator('.badge').first();
+    await expectMargin(marginLocator, 75, 1);
 
     await calc.closeResults();
   });
 
   test('should handle equal price and cost (zero margin)', async ({ page }) => {
     await calc.switchToMarginCheck();
+    await calc.setNoTaxPromo(false);
     await calc.setupItems([
       { price: 600, landingCost: 600, quantity: 1 }
     ]);
@@ -242,11 +248,11 @@ test.describe('Edge Cases', () => {
     await calc.waitForResults();
 
     // Should show 0% margin and red status
-    const marginLocator = calc.resultsContent.locator('text=/0.*%/i');
-    await expect(marginLocator).toBeVisible();
+    const marginLocator = calc.resultsContent.locator('.badge').first();
+    await expectMargin(marginLocator, 0, 1);
 
-    const statusLocator = calc.resultsContent.locator('text=/Too Low|✗/i');
-    await expect(statusLocator).toBeVisible();
+    const statusLocator = calc.resultsContent.locator('.badge').first();
+    await expect(statusLocator).toContainText(/Too Low|✗/i);
 
     await calc.closeResults();
   });

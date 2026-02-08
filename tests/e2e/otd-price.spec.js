@@ -29,12 +29,13 @@ test.describe('OTD Price Mode', () => {
     await calc.waitForResults();
 
     // Verify margin is shown (should be ~53%)
-    const marginLocator = calc.resultsContent.locator('text=/5[0-9].*%/').first();
+    const marginSection = await calc.openResultSection('Margin Analysis');
+    const marginLocator = marginSection.locator('text=/\\d+\\.\\d+%/').first();
     await expectMargin(marginLocator, scenario.expected.margin, 2);
 
     // Verify status is Approved
-    const statusLocator = calc.resultsContent.locator('text=/Approved|✓|Great/i');
-    await expect(statusLocator).toBeVisible();
+    const statusLocator = calc.resultsContent.locator('.big-total-label').first();
+    await expect(statusLocator).toContainText(/Approved|✓|Great/i);
 
     await calc.closeResults();
   });
@@ -70,7 +71,8 @@ test.describe('OTD Price Mode', () => {
     // Back out delivery: $2000 - $135 = $1865
     // Back out tax: $1865 / 1.09125 = $1708.54
     // Margin: ($1708.54 - $800) / $1708.54 = 53.18%
-    const marginLocator = calc.resultsContent.locator('text=/5[0-9].*%/').first();
+    const marginSection = await calc.openResultSection('Margin Analysis');
+    const marginLocator = marginSection.locator('text=/\\d+\\.\\d+%/').first();
     await expectMargin(marginLocator, 53, 2);
 
     await calc.closeResults();
@@ -79,8 +81,8 @@ test.describe('OTD Price Mode', () => {
   test('should show correct status badge for different margins', async ({ page }) => {
     const testCases = [
       { otdPrice: 2500, expectedStatus: /Approved|Great|✓/i }, // High margin
-      { otdPrice: 1700, expectedStatus: /OK|⚠/i },             // Medium margin
-      { otdPrice: 1500, expectedStatus: /Too Low|✗/i },        // Low margin
+      { otdPrice: 1800, expectedStatus: /OK|⚠/i },             // Medium margin
+      { otdPrice: 1600, expectedStatus: /Too Low|✗/i },        // Low margin
     ];
 
     for (const testCase of testCases) {
@@ -94,8 +96,8 @@ test.describe('OTD Price Mode', () => {
       await calc.waitForResults();
 
       // Verify status
-      const statusLocator = calc.resultsContent.locator(`text=${testCase.expectedStatus}`);
-      await expect(statusLocator).toBeVisible();
+      const statusLocator = calc.resultsContent.locator('.big-total-label').first();
+      await expect(statusLocator).toContainText(testCase.expectedStatus);
 
       await calc.closeResults();
     }
@@ -112,7 +114,8 @@ test.describe('OTD Price Mode', () => {
     await calc.waitForResults();
 
     // Verify margin is calculated correctly for multiple items
-    const marginLocator = calc.resultsContent.locator('text=/5[0-9].*%/').first();
+    const marginSection = await calc.openResultSection('Margin Analysis');
+    const marginLocator = marginSection.locator('text=/\\d+\\.\\d+%/').first();
     await expectMargin(marginLocator, scenario.expected.margin, 2);
 
     await calc.closeResults();
@@ -168,17 +171,14 @@ test.describe('OTD Price Mode', () => {
     ]);
 
     // Don't set OTD price
-
-    page.on('dialog', async dialog => {
-      expect(dialog.message().toLowerCase()).toMatch(/otd|price/i);
-      await dialog.accept();
-    });
-
     await calc.calculate();
 
     // Results should not show
     const isVisible = await calc.isResultsVisible();
     expect(isVisible).toBeFalsy();
+
+    const errorText = calc.page.locator('.error-text').filter({ hasText: /otd|offer|price/i });
+    await expect(errorText).toBeVisible();
   });
 
   test('should calculate profit amount correctly', async ({ page }) => {
@@ -191,11 +191,12 @@ test.describe('OTD Price Mode', () => {
     await calc.calculate();
     await calc.waitForResults();
 
-    // Back out delivery: $2000 - $135 = $1865
-    // Back out tax: $1865 / 1.09125 = $1708.54
-    // Profit: $1708.54 - $800 = $908.54
-    const profitLocator = calc.resultsContent.locator('text=/Profit.*\\$/i');
-    await expectMoneyValue(profitLocator, 908, 2);
+    // Back out delivery + delivery tax: $2000 - $147.32 = $1852.68
+    // Back out tax: $1852.68 / 1.09125 = $1697.76
+    // Profit: $1697.76 - $800 = $897.76
+    const marginSection = await calc.openResultSection('Margin Analysis');
+    const profitLocator = marginSection.locator('text=/Profit/i').locator('..');
+    await expectMoneyValue(profitLocator, 897.76, 2);
 
     await calc.closeResults();
   });
@@ -212,7 +213,8 @@ test.describe('OTD Price Mode', () => {
 
     // Back out tax only: $2000 / 1.09125 = $1832.12
     // Margin: ($1832.12 - $800) / $1832.12 = 56.34%
-    const marginLocator = calc.resultsContent.locator('text=/5[0-9].*%/').first();
+    const marginSection = await calc.openResultSection('Margin Analysis');
+    const marginLocator = marginSection.locator('text=/\\d+\\.\\d+%/').first();
     await expectMargin(marginLocator, 56, 2);
 
     await calc.closeResults();
@@ -229,7 +231,8 @@ test.describe('OTD Price Mode', () => {
     await calc.calculate();
     await calc.waitForResults();
 
-    const margin1 = await calc.resultsContent.locator('text=/\\d+.*%/').first().textContent();
+    const marginSection1 = await calc.openResultSection('Margin Analysis');
+    const margin1 = await marginSection1.locator('text=/\\d+\\.\\d+%/').first().textContent();
     await calc.closeResults();
 
     // Change OTD price
@@ -237,7 +240,8 @@ test.describe('OTD Price Mode', () => {
     await calc.calculate();
     await calc.waitForResults();
 
-    const margin2 = await calc.resultsContent.locator('text=/\\d+.*%/').first().textContent();
+    const marginSection2 = await calc.openResultSection('Margin Analysis');
+    const margin2 = await marginSection2.locator('text=/\\d+\\.\\d+%/').first().textContent();
 
     // Margins should be different
     expect(margin1).not.toBe(margin2);
@@ -248,7 +252,7 @@ test.describe('OTD Price Mode', () => {
   test('should handle quantities in total landing calculation', async ({ page }) => {
     await calc.setDelivery(DELIVERY_OPTIONS.STANDARD);
     await calc.setupItems([
-      { name: 'Chair', landingCost: 200, quantity: 3 }
+      { name: 'Sofa', landingCost: 200, quantity: 3 }
     ]);
     await calc.setOtdPrice(1000);
 
@@ -259,7 +263,8 @@ test.describe('OTD Price Mode', () => {
     // Back out delivery: $1000 - $135 = $865
     // Back out tax: $865 / 1.09125 = $792.57
     // Margin: ($792.57 - $600) / $792.57 = 24.30%
-    const marginLocator = calc.resultsContent.locator('text=/2[0-9].*%/').first();
+    const marginSection = await calc.openResultSection('Margin Analysis');
+    const marginLocator = marginSection.locator('text=/\\d+\\.\\d+%/').first();
     await expectMargin(marginLocator, 24, 2);
 
     await calc.closeResults();

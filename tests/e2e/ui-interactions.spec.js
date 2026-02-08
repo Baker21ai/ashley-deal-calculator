@@ -36,18 +36,18 @@ test.describe('UI Interactions', () => {
       // Quick Quote: should show price fields
       await calc.switchToQuickQuote();
       const itemRow = calc.getItemRow(0);
-      const priceButton = itemRow.locator('button').filter({ hasText: /Price|\$/ }).first();
-      await expect(priceButton).toBeVisible();
+      const priceInput = itemRow.locator('input[placeholder="$0.00"]').first();
+      await expect(priceInput).toBeVisible();
 
       // Margin Check: should show both price and landing cost
       await calc.switchToMarginCheck();
-      const costButton = itemRow.locator('button').filter({ hasText: /Landing|Cost/ }).first();
-      await expect(costButton).toBeVisible();
+      const landingInput = itemRow.locator('input[placeholder="$0.00"]').nth(1);
+      await expect(landingInput).toBeVisible();
 
       // OTD Price: should show OTD price input
       await calc.switchToOtdPrice();
-      const otdButton = page.locator('button').filter({ hasText: /OTD|Out.*Door/i }).first();
-      await expect(otdButton).toBeVisible();
+      const otdInput = page.locator('.card').filter({ hasText: /OTD/i }).locator('input[placeholder="$0.00"]').first();
+      await expect(otdInput).toBeVisible();
     });
   });
 
@@ -55,7 +55,7 @@ test.describe('UI Interactions', () => {
     test('should open and close dial picker', async ({ page }) => {
       await calc.switchToMarginCheck();
       const itemRow = calc.getItemRow(0);
-      const priceButton = itemRow.locator('button').filter({ hasText: /Price|\$/ }).first();
+      const priceButton = itemRow.locator('.wheel-btn-compact').first();
 
       // Open
       await priceButton.click();
@@ -98,7 +98,7 @@ test.describe('UI Interactions', () => {
     test('should close dial picker by clicking outside', async ({ page }) => {
       await calc.switchToMarginCheck();
       const itemRow = calc.getItemRow(0);
-      const priceButton = itemRow.locator('button').filter({ hasText: /Price|\$/ }).first();
+      const priceButton = itemRow.locator('.wheel-btn-compact').first();
 
       await priceButton.click();
       expect(await calc.dialPicker.isOpen()).toBeTruthy();
@@ -179,17 +179,11 @@ test.describe('UI Interactions', () => {
     test('should show more presets', async ({ page }) => {
       const itemRow = calc.getItemRow(0);
 
-      // Check if "More" button exists
-      const moreButton = itemRow.getByRole('button', { name: /More|\.\.\./ });
-      const hasMoreButton = await moreButton.isVisible();
-
-      if (hasMoreButton) {
-        await moreButton.click();
-
-        // More presets should be visible
-        const morePresets = itemRow.locator('button').filter({ hasText: /Dining|Desk|Bookshelf/ });
-        await expect(morePresets.first()).toBeVisible();
-      }
+      // Verify additional presets exist in the select
+      const select = itemRow.locator('select');
+      await expect(select).toBeVisible();
+      const optionsText = await select.evaluate(el => Array.from(el.options).map(o => o.textContent).join(' '));
+      expect(optionsText).toMatch(/Dining|Desk|Bookshelf/i);
     });
 
     test('should allow custom item names', async ({ page }) => {
@@ -205,24 +199,23 @@ test.describe('UI Interactions', () => {
   test.describe('Deal Settings', () => {
     test('should change sale percentage', async ({ page }) => {
       await calc.setSalePercent(30);
-      // Verify by checking select value
-      const value = await calc.salePercentSelect.inputValue();
-      expect(value).toBe('30');
+      const value = await calc.getSalePercent();
+      expect(value).toBe(30);
 
       await calc.setSalePercent(35);
-      const value2 = await calc.salePercentSelect.inputValue();
-      expect(value2).toBe('35');
+      const value2 = await calc.getSalePercent();
+      expect(value2).toBe(35);
     });
 
     test('should toggle No-Tax Promo', async ({ page }) => {
       // Enable
       await calc.setNoTaxPromo(true);
-      const checked1 = await calc.noTaxPromoToggle.isChecked();
+      const checked1 = await calc.getNoTaxPromo();
       expect(checked1).toBeTruthy();
 
       // Disable
       await calc.setNoTaxPromo(false);
-      const checked2 = await calc.noTaxPromoToggle.isChecked();
+      const checked2 = await calc.getNoTaxPromo();
       expect(checked2).toBeFalsy();
     });
 
@@ -230,11 +223,11 @@ test.describe('UI Interactions', () => {
       await calc.switchToQuickQuote();
 
       await calc.setPriceType('tag');
-      const value1 = await calc.priceTypeSelect.inputValue();
+      const value1 = await calc.getPriceType();
       expect(value1).toBe('tag');
 
       await calc.setPriceType('sale');
-      const value2 = await calc.priceTypeSelect.inputValue();
+      const value2 = await calc.getPriceType();
       expect(value2).toBe('sale');
     });
 
@@ -243,8 +236,8 @@ test.describe('UI Interactions', () => {
 
       for (const delivery of deliveryOptions) {
         await calc.setDelivery(delivery);
-        const value = await calc.deliverySelect.inputValue();
-        expect(value).toBe(`${delivery}`);
+        const value = await calc.getDelivery();
+        expect(value).toBe(delivery);
       }
     });
   });

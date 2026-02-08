@@ -12,7 +12,7 @@ import { parseMoneyString, parsePercentString, almostEqual } from './calculation
  * @param {number} tolerance - Acceptable difference (default 0.01)
  */
 export async function expectMoneyValue(locator, expectedAmount, tolerance = 0.01) {
-  const text = await locator.textContent();
+  const text = await locator.first().textContent();
   const actualAmount = parseMoneyString(text);
 
   expect(
@@ -28,7 +28,7 @@ export async function expectMoneyValue(locator, expectedAmount, tolerance = 0.01
  * @param {number} tolerance - Acceptable difference (default 0.1)
  */
 export async function expectMargin(locator, expectedMargin, tolerance = 0.1) {
-  const text = await locator.textContent();
+  const text = await locator.first().textContent();
   const actualMargin = parsePercentString(text);
 
   expect(

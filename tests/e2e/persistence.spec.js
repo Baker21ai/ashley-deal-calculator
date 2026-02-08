@@ -38,14 +38,14 @@ test.describe('LocalStorage Persistence', () => {
     await calc.waitForLoad();
 
     // Settings should persist
-    const salePercent = await calc.salePercentSelect.inputValue();
-    expect(salePercent).toBe('35');
+    const salePercent = await calc.getSalePercent();
+    expect(salePercent).toBe(35);
 
-    const noTaxChecked = await calc.noTaxPromoToggle.isChecked();
+    const noTaxChecked = await calc.getNoTaxPromo();
     expect(noTaxChecked).toBeFalsy();
 
-    const delivery = await calc.deliverySelect.inputValue();
-    expect(delivery).toBe('150');
+    const delivery = await calc.getDelivery();
+    expect(delivery).toBe(150);
   });
 
   test('should persist items across reloads', async ({ page }) => {
@@ -179,7 +179,7 @@ test.describe('LocalStorage Persistence', () => {
     await calc.waitForLoad();
 
     // Price type should persist
-    const priceType = await calc.priceTypeSelect.inputValue();
+    const priceType = await calc.getPriceType();
     expect(priceType).toBe('tag');
   });
 
@@ -241,8 +241,8 @@ test.describe('LocalStorage Persistence', () => {
     const mode = await newCalc.getCurrentMode();
     expect(mode).toBe('margin');
 
-    const salePercent = await newCalc.salePercentSelect.inputValue();
-    expect(salePercent).toBe('40');
+    const salePercent = await newCalc.getSalePercent();
+    expect(salePercent).toBe(40);
 
     await newContext.close();
   });

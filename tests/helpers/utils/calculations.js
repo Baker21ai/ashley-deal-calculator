@@ -139,7 +139,9 @@ export function almostEqual(a, b, tolerance = 0.01) {
  * @returns {number} Numeric value
  */
 export function parseMoneyString(moneyString) {
-  return parseFloat(moneyString.replace(/[$,]/g, ''));
+  const match = moneyString.match(/-?\$?\d[\d,]*\.?\d*/);
+  if (!match) return NaN;
+  return parseFloat(match[0].replace(/[$,]/g, ''));
 }
 
 /**
@@ -148,5 +150,7 @@ export function parseMoneyString(moneyString) {
  * @returns {number} Numeric value
  */
 export function parsePercentString(percentString) {
-  return parseFloat(percentString.replace('%', ''));
+  const match = percentString.match(/-?\d+(\.\d+)?(?=%)/);
+  if (!match) return NaN;
+  return parseFloat(match[0]);
 }

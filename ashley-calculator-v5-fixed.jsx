@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useLayoutEffect, useMemo } from 'react';
 
 const TAX_RATE = 9.125;
 const STORAGE_KEY = 'ashley-calculator-state';
@@ -7,28 +7,73 @@ const DEFAULT_DELIVERY = 135;
 // Item type presets - top 5 always visible, rest in expandable section
 const TOP_ITEM_PRESETS = ['Sofa', 'Sectional', 'Bed', 'Mattress', 'Dresser'];
 const MORE_ITEM_PRESETS = [
-  'Dining Table', 'Loveseat', 'Recliner', 'Chest', 'Nightstand',
-  'End Table', 'Coffee Table', 'TV Stand', 'Dining Chairs', 'Desk',
-  'Bookshelf', 'Accent Chair', 'Ottoman', 'Headboard', 'Bunk Bed'
+  'Loveseat', 'Chair', 'Ottoman', 'Recliner', 'Nightstand',
+  'Chest', 'Mirror', 'Dining Table', 'Dining Chair', 'Buffet',
+  'Coffee Table', 'End Table', 'Console Table', 'TV Stand', 'Bookcase',
+  'Dining Chairs', 'Desk', 'Bookshelf', 'Accent Chair', 'Headboard', 'Bunk Bed'
 ];
+
+const createEmptyItem = (id = Date.now()) => ({
+  id,
+  name: '',
+  price: '',
+  qty: 1,
+  landingCost: '',
+  marginSet: false,
+  selectedMargin: null,
+  originalPrice: undefined,
+});
+
+const normalizeItem = (item, fallbackId) => {
+  const safeItem = item && typeof item === 'object' ? item : {};
+  const qtyValue = parseInt(safeItem.qty, 10);
+  return {
+    id: safeItem.id ?? fallbackId,
+    name: safeItem.name ?? '',
+    price: safeItem.price ?? '',
+    qty: Number.isFinite(qtyValue) && qtyValue > 0 ? qtyValue : 1,
+    landingCost: safeItem.landingCost ?? '',
+    marginSet: Boolean(safeItem.marginSet),
+    selectedMargin: safeItem.selectedMargin ?? null,
+    originalPrice: safeItem.originalPrice,
+  };
+};
+
+const loadStoredState = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (e) {
+    console.error('Failed to load saved state:', e);
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore storage cleanup errors
+    }
+    return null;
+  }
+};
 
 // Design System Constants
 const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24 };
 
 const colors = {
   primary: {
-    50: '#faf8f5',
-    100: '#f5f2ef',
-    200: '#e0d8cf',
-    400: '#8b7355',
-    500: '#6d5a45',
-    600: '#5c4a3a',
+    50: 'rgba(255,255,255,0.06)',
+    100: 'rgba(255,255,255,0.08)',
+    200: 'rgba(255,255,255,0.12)',
+    400: '#E23744',
+    500: '#E23744',
+    600: '#C92A36',
   },
-  success: { light: '#e8f5e9', main: '#2e7d32', dark: '#1b5e20' },
-  warning: { light: '#fff3e0', main: '#f57c00', dark: '#e65100' },
-  error: { light: '#ffebee', main: '#c62828', dark: '#b71c1c' },
-  info: { light: '#e3f2fd', main: '#1565c0' },
-  text: { primary: '#333', secondary: '#666', disabled: '#999' },
+  success: { light: 'rgba(52,211,153,0.15)', main: '#34D399', dark: '#10B981' },
+  warning: { light: 'rgba(251,191,36,0.15)', main: '#FBBF24', dark: '#F59E0B' },
+  error: { light: 'rgba(248,113,113,0.15)', main: '#F87171', dark: '#EF4444' },
+  info: { light: 'rgba(59,130,246,0.15)', main: '#3B82F6' },
+  text: { primary: '#F5F0EB', secondary: '#8B91A0', disabled: '#6B7280' },
 };
 
 function formatMoney(num) {
@@ -53,30 +98,50 @@ function priceForMargin(landingCost, targetMarginPercent) {
 }
 
 export default function AshleyDealCalculator() {
-  const [mode, setMode] = useState('margin'); // 'quote', 'margin', 'otd'
+  const storedState = useMemo(() => loadStoredState(), []);
+  const initialItems = Array.isArray(storedState?.items) && storedState.items.length > 0
+    ? storedState.items.map((item, index) => normalizeItem(item, Date.now() + index))
+    : [createEmptyItem(1)];
+  const initialCustomInput = {};
+  initialItems.forEach((item) => {
+    if (item.name && !TOP_ITEM_PRESETS.includes(item.name) && !MORE_ITEM_PRESETS.includes(item.name)) {
+      initialCustomInput[item.id] = true;
+    }
+  });
+
+  const [mode, setMode] = useState(storedState?.mode ?? 'margin'); // 'quote', 'margin', 'otd'
   const [showHelp, setShowHelp] = useState(false);
   
   // Deal settings
-  const [salePercent, setSalePercent] = useState(30);
-  const [noTaxPromo, setNoTaxPromo] = useState(true);
-  const [priceType, setPriceType] = useState('sale');
-  const [delivery, setDelivery] = useState('135');
+  const [salePercent, setSalePercent] = useState(
+    Number.isFinite(storedState?.salePercent) ? storedState.salePercent : 30
+  );
+  const [noTaxPromo, setNoTaxPromo] = useState(
+    typeof storedState?.noTaxPromo === 'boolean' ? storedState.noTaxPromo : true
+  );
+  const [priceType, setPriceType] = useState(storedState?.priceType ?? 'sale');
+  const [delivery, setDelivery] = useState(
+    storedState?.delivery != null ? String(storedState.delivery) : String(DEFAULT_DELIVERY)
+  );
   
   // Items
-  const [items, setItems] = useState([{ id: 1, name: '', price: '', qty: 1, landingCost: '', marginSet: false, selectedMargin: null, originalPrice: undefined }]);
+  const [items, setItems] = useState(initialItems);
   
   // OTD mode
-  const [otdPrice, setOtdPrice] = useState('');
+  const [otdPrice, setOtdPrice] = useState(
+    storedState?.otdPrice != null ? String(storedState.otdPrice) : ''
+  );
   
   // Results
   const [showResults, setShowResults] = useState(false);
+  const [errors, setErrors] = useState({});
 
   // Confirmation modal
   const [showConfirmReset, setShowConfirmReset] = useState(false);
 
   // Item presets UI state - track which items have expanded presets
   const [expandedItemPresets, setExpandedItemPresets] = useState({});
-  const [showCustomInput, setShowCustomInput] = useState({});
+  const [showCustomInput, setShowCustomInput] = useState(initialCustomInput);
 
   // Scroll wheel picker state
   const [wheelOpen, setWheelOpen] = useState(null); // { itemId, field } or { field: 'otd' }
@@ -117,27 +182,8 @@ export default function AshleyDealCalculator() {
     },
   ];
 
-  // Load state from localStorage on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const state = JSON.parse(saved);
-        if (state.mode) setMode(state.mode);
-        if (state.salePercent) setSalePercent(state.salePercent);
-        if (typeof state.noTaxPromo === 'boolean') setNoTaxPromo(state.noTaxPromo);
-        if (state.priceType) setPriceType(state.priceType);
-        if (state.delivery) setDelivery(state.delivery);
-        if (state.items && state.items.length > 0) setItems(state.items);
-        if (state.otdPrice) setOtdPrice(state.otdPrice);
-      }
-    } catch (e) {
-      console.error('Failed to load saved state:', e);
-    }
-  }, []);
-
   // Save state to localStorage whenever it changes
-  useEffect(() => {
+  useLayoutEffect(() => {
     try {
       const state = {
         mode,
@@ -157,7 +203,7 @@ export default function AshleyDealCalculator() {
   const taxRate = TAX_RATE / 100;
 
   const addItem = () => {
-    setItems([...items, { id: Date.now(), name: '', price: '', qty: 1, landingCost: '', marginSet: false, selectedMargin: null, originalPrice: undefined }]);
+    setItems([...items, createEmptyItem()]);
   };
 
   const removeItem = (id) => {
@@ -170,33 +216,46 @@ export default function AshleyDealCalculator() {
     setItems(items.map(item => 
       item.id === id ? { ...item, [field]: value } : item
     ));
+    if (field === 'landingCost') clearError('landingCost');
+    if (field === 'price') clearError('price');
+  };
+
+  const clearError = (key) => {
+    setErrors(prev => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   };
 
   const calculate = () => {
+    const nextErrors = {};
     if (mode === 'otd') {
       if (parseMoney(otdPrice) <= 0) {
-        alert('Please enter the out-the-door price!');
-        return;
+        nextErrors.otdPrice = 'Enter the customer OTD offer.';
       }
-      const hasLanding = items.some(item => parseMoney(item.landingCost) > 0);
+      const hasLanding = items.some(item => String(item.landingCost).trim() !== '');
       if (!hasLanding) {
-        alert('Please enter landing cost for at least one item!');
-        return;
+        nextErrors.landingCost = 'Enter landing cost for at least one item.';
       }
     } else if (mode === 'margin') {
       // Margin Check only requires landing cost (price is optional)
-      const hasLanding = items.some(item => parseMoney(item.landingCost) > 0);
+      const hasLanding = items.some(item => String(item.landingCost).trim() !== '');
       if (!hasLanding) {
-        alert('Please enter landing cost for at least one item!');
-        return;
+        nextErrors.landingCost = 'Enter landing cost for at least one item.';
       }
     } else {
       // Quick Quote requires price
       const validItems = items.filter(item => parseMoney(item.price) > 0);
       if (validItems.length === 0) {
-        alert('Please add at least one item with a price!');
-        return;
+        nextErrors.price = 'Add at least one item price.';
       }
+    }
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0) {
+      setShowResults(false);
+      return;
     }
     setShowResults(true);
   };
@@ -210,6 +269,7 @@ export default function AshleyDealCalculator() {
     const rawPrice = parseMoney(item.price);
     const qty = parseInt(item.qty) || 1;
     const landingCost = parseMoney(item.landingCost);
+    const landingProvided = String(item.landingCost).trim() !== '';
     
     let salePrice, invoicePrice, quotePrice;
     
@@ -253,11 +313,11 @@ export default function AshleyDealCalculator() {
     }
     
     const lineTotal = invoicePrice * qty; // lineTotal is always invoice price for calculations
-    const margin = (landingCost > 0 && invoicePrice > 0) ? calculateMargin(invoicePrice, landingCost) : null;
+    const margin = (landingProvided && invoicePrice > 0) ? calculateMargin(invoicePrice, landingCost) : null;
     const totalLandingCost = landingCost * qty;
     
     // Calculate profit based on invoice price (what you actually keep)
-    const profitPerUnit = (landingCost > 0 && invoicePrice > 0) ? (invoicePrice - landingCost) : null;
+    const profitPerUnit = (landingProvided && invoicePrice > 0) ? (invoicePrice - landingCost) : null;
     const totalProfit = profitPerUnit !== null ? profitPerUnit * qty : null;
     
     // Price targets for different margins (these are INVOICE prices)
@@ -274,6 +334,7 @@ export default function AshleyDealCalculator() {
       lineTotal, 
       qty,
       landingCost,
+      landingProvided,
       totalLandingCost,
       margin,
       profitPerUnit,
@@ -356,6 +417,45 @@ export default function AshleyDealCalculator() {
     setItems(items.map(item => 
       item.id === id ? { ...item, price: value, marginSet: false, selectedMargin: null, originalPrice: undefined } : item
     ));
+    clearError('price');
+  };
+
+  // Estimate landing cost from full retail price / 3.3
+  const estimateLandingCost = (itemId) => {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+
+    let fullRetail = 0;
+    const currentPrice = parseMoney(item.price);
+
+    if (currentPrice > 0) {
+      // Price exists - derive full retail based on priceType
+      if (priceType === 'tag') {
+        // Price entered is already the full retail/tag price
+        fullRetail = currentPrice;
+      } else {
+        // Price entered is sale price - back-calculate to full retail
+        const discount = salePercent / 100;
+        fullRetail = currentPrice / (1 - discount);
+      }
+    } else {
+      // No price entered - prompt for full retail price
+      const promptValue = window.prompt('Enter the full retail price:');
+      if (promptValue === null) return; // User cancelled
+      const parsedPrompt = parseMoney(promptValue);
+      if (parsedPrompt <= 0) {
+        alert('Please enter a valid retail price.');
+        return;
+      }
+      fullRetail = parsedPrompt;
+    }
+
+    // Calculate landing cost: full retail / 3.3
+    const estimatedLandingCost = fullRetail / 3.3;
+    const roundedCost = Math.round(estimatedLandingCost * 100) / 100; // Round to 2 decimal places
+    
+    // Update the landing cost field
+    updateItem(itemId, 'landingCost', roundedCost.toFixed(2));
   };
   
   const startOver = () => {
@@ -363,12 +463,16 @@ export default function AshleyDealCalculator() {
   };
 
   const confirmStartOver = () => {
+    setMode('margin');
     setSalePercent(30);
     setNoTaxPromo(true);
     setPriceType('sale');
-    setDelivery('135');
-    setItems([{ id: 1, name: '', price: '', qty: 1, landingCost: '', marginSet: false, selectedMargin: null, originalPrice: undefined }]);
+    setDelivery(String(DEFAULT_DELIVERY));
+    setItems([createEmptyItem(1)]);
     setOtdPrice('');
+    setErrors({});
+    setExpandedItemPresets({});
+    setShowCustomInput({});
     setShowResults(false);
     setShowConfirmReset(false);
   };
@@ -400,6 +504,7 @@ export default function AshleyDealCalculator() {
     const numValue = getWheelTotal();
     if (wheelOpen.field === 'otd') {
       setOtdPrice(numValue.toFixed(2));
+      clearError('otdPrice');
     } else if (wheelOpen.field === 'price') {
       updateItemPrice(wheelOpen.itemId, numValue.toFixed(2));
     } else if (wheelOpen.field === 'landingCost') {
@@ -441,9 +546,9 @@ export default function AshleyDealCalculator() {
   };
 
   const getMarginColor = (margin) => {
-    if (margin >= 50) return '#2e7d32';
-    if (margin >= 47) return '#f57c00';
-    return '#c62828';
+    if (margin >= 50) return colors.success.main;
+    if (margin >= 47) return colors.warning.main;
+    return colors.error.main;
   };
 
   const getMarginLabel = (margin) => {
@@ -533,6 +638,9 @@ export default function AshleyDealCalculator() {
       <div style={{ marginTop: space.lg }}>
         {title && <SectionHeader title={title} />}
         <div
+          className="copy-block"
+          role="button"
+          tabIndex={0}
           onClick={handleCopy}
           style={{
             background: colors.primary[50],
@@ -545,7 +653,7 @@ export default function AshleyDealCalculator() {
             whiteSpace: 'pre-wrap',
             cursor: 'pointer',
             position: 'relative',
-            color: '#333'
+            color: colors.text.primary
           }}
         >
           {content}
@@ -574,6 +682,8 @@ export default function AshleyDealCalculator() {
 
   // State for settings accordion
   const [settingsExpanded, setSettingsExpanded] = useState(false);
+  // State for guide accordion
+  const [guideExpanded, setGuideExpanded] = useState(false);
   // State for header menu
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -582,68 +692,104 @@ export default function AshleyDealCalculator() {
       return {
         title: 'Quick Start (Quote)',
         steps: [
-          'Enter tag or sale prices.',
-          'Pick delivery.',
+          'Enter the tag price or sale price.',
+          'Pick a delivery option.',
           'Tap Calculate.',
         ],
-        example: 'Example: $1000 tag + $135 delivery = total shown.',
-        mistake: 'Do not enter landing cost in this mode.',
+        example: '$1,000 tag + $135 delivery = total shown',
+        mistake: "Don't enter landing cost in this mode.",
       };
     }
     if (mode === 'margin') {
       return {
         title: 'Quick Start (Margin)',
         steps: [
-          'Enter sale price.',
-          'Enter landing cost.',
-          'Check the color.',
+          'Enter the sale price.',
+          'Enter the landing cost.',
+          'Check the color indicator.',
         ],
-        example: 'Example: Landing $500 → 50% target is $1000.',
+        example: 'Landing cost $500 at 50% margin means a $1,000 sale price.',
         mistake: noTaxPromo
-          ? 'No-Tax ON: enter customer price with tax.'
-          : 'Price here is before tax.',
-        note: 'Below 47% = stop and call manager.',
+          ? "No-Tax Promo is ON: enter the customer's price including tax."
+          : 'Prices should be entered before tax.',
+        note: 'Below 47% margin -- stop and call a manager.',
       };
     }
     return {
       title: 'Quick Start (OTD)',
       steps: [
-        'Enter landing cost.',
-        'Enter customer offer.',
-        'See if it is OK.',
+        'Enter the landing cost.',
+        "Enter the customer's total offer.",
+        'Check if the margin is acceptable.',
       ],
-      example: 'Example: Customer says $1200 OTD → app shows margin.',
-      mistake: 'OTD means total with tax and delivery.',
-      note: 'Below 47% = stop and call manager.',
+      example: "Customer offers $1,200 OTD -- the app shows your margin.",
+      mistake: 'OTD means the total price including tax and delivery.',
+      note: 'Below 47% margin -- stop and call a manager.',
     };
   })();
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: '#f8f6f3',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      padding: '16px',
-      paddingBottom: '100px',
-      color: '#333',
-    }}>
+    <div className="app">
       <style>{`
         * { box-sizing: border-box; }
+        :root {
+          --font-body: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          --font-display: "DM Serif Display", "Times New Roman", serif;
+          --bg-deep: #0F1117;
+          --bg: #161920;
+          --surface: #1E2230;
+          --surface-2: #262B3A;
+          --glass: rgba(255,255,255,0.06);
+          --line: rgba(255,255,255,0.08);
+          --text: #F5F0EB;
+          --muted: #8B91A0;
+          --primary: #E23744;
+          --primary-strong: #C92A36;
+          --crimson: #E23744;
+          --crimson-glow: rgba(226,55,68,0.15);
+          --success: #34D399;
+          --warning: #FBBF24;
+          --danger: #F87171;
+          --radius-lg: 18px;
+          --radius-md: 12px;
+          --radius-sm: 8px;
+          --shadow-soft: 0 10px 30px rgba(0,0,0,0.3);
+          --shadow-card: 0 6px 18px rgba(0,0,0,0.2);
+          --shadow-glow: 0 0 20px rgba(226,55,68,0.3);
+          --tap: 48px;
+        }
 
-        .container { max-width: 500px; margin: 0 auto; padding-bottom: 90px; }
+        body {
+          font-family: var(--font-body);
+        }
+
+        .app {
+          min-height: 100vh;
+          background: var(--bg-deep);
+          color: var(--text);
+          padding: 16px;
+          padding-bottom: calc(96px + env(safe-area-inset-bottom));
+        }
+
+        .container { max-width: 520px; margin: 0 auto; padding-bottom: 100px; }
 
         /* Sticky Header */
         .header {
           position: sticky;
-          top: 0;
+          top: 10px;
           z-index: 40;
-          background: linear-gradient(135deg, #8b7355 0%, #6d5a45 100%);
-          padding: 12px 16px;
-          margin: -16px -16px 16px -16px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+          background: rgba(30, 34, 48, 0.85);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border: 1px solid var(--line);
+          border-radius: var(--radius-lg);
+          padding: 14px 16px;
+          margin: 0 0 16px 0;
+          box-shadow: var(--shadow-card);
           display: flex;
           align-items: center;
           justify-content: space-between;
+          border-bottom: 2px solid var(--crimson);
         }
         .header-content {
           flex: 1;
@@ -651,39 +797,47 @@ export default function AshleyDealCalculator() {
         }
         .header h1 {
           margin: 0;
-          font-size: 18px;
-          color: white;
+          font-size: 20px;
+          color: var(--text);
           font-weight: 700;
+          font-family: var(--font-display);
+          letter-spacing: 0.3px;
         }
         .header p {
           margin: 2px 0 0;
           font-size: 11px;
-          color: rgba(255,255,255,0.8);
+          color: var(--muted);
         }
-        .header-menu-btn {
-          background: rgba(255,255,255,0.15);
-          border: none;
-          width: 40px;
-          height: 40px;
-          border-radius: 10px;
+        .header-menu-btn,
+        .header-reset-btn {
+          background: var(--glass);
+          border: 1px solid var(--line);
+          width: var(--tap);
+          height: var(--tap);
+          border-radius: 12px;
           font-size: 18px;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          color: white;
+          color: var(--text);
           transition: all 0.2s;
         }
-        .header-menu-btn:hover {
-          background: rgba(255,255,255,0.25);
+        .header-menu-btn:hover,
+        .header-reset-btn:hover {
+          background: rgba(255,255,255,0.1);
+          border-color: var(--crimson);
         }
         .header-menu {
           position: absolute;
           top: 100%;
           right: 16px;
-          background: white;
-          border-radius: 12px;
-          box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+          background: var(--surface);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border: 1px solid var(--line);
+          border-radius: 14px;
+          box-shadow: var(--shadow-card);
           overflow: hidden;
           min-width: 160px;
           z-index: 50;
@@ -698,123 +852,158 @@ export default function AshleyDealCalculator() {
           width: 100%;
           text-align: left;
           font-size: 14px;
-          color: #333;
+          color: var(--text);
           cursor: pointer;
           transition: background 0.15s;
         }
         .header-menu-item:hover {
-          background: #f5f2ef;
+          background: var(--glass);
         }
         .header-menu-item:not(:last-child) {
-          border-bottom: 1px solid #f0ebe5;
+          border-bottom: 1px solid var(--line);
         }
 
         .mode-tabs {
           display: flex;
-          background: white;
-          border-radius: 14px;
-          padding: 5px;
-          margin-bottom: 16px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+          background: var(--surface);
+          border-radius: 16px;
+          padding: 4px;
+          margin-bottom: 14px;
+          border: 1px solid var(--line);
+          box-shadow: var(--shadow-card);
         }
         .mode-tab {
           flex: 1;
           padding: 14px 8px;
           border: none;
           background: transparent;
-          border-radius: 11px;
-          font-size: 14px;
+          border-radius: 12px;
+          font-size: 13px;
           font-weight: 600;
-          color: #888;
+          color: var(--muted);
           cursor: pointer;
-          transition: all 0.15s;
-          min-height: 48px;
+          transition: all 0.2s;
+          min-height: var(--tap);
           display: flex;
           align-items: center;
           justify-content: center;
         }
         .mode-tab.active {
-          background: #8b7355;
+          background: var(--crimson);
           color: white;
+          box-shadow: 0 0 12px var(--crimson-glow), inset 0 1px 0 rgba(255,255,255,0.1);
         }
-        .mode-tab:not(.active):hover { background: #f5f2ef; }
+        .mode-tab:not(.active):hover { 
+          background: var(--glass);
+          color: var(--text);
+        }
 
         .mode-hint {
           margin: -6px 0 12px;
           font-size: 12px;
-          color: #666;
+          color: var(--muted);
           text-align: center;
         }
         .mini-guide {
-          background: #fff8e1;
-          border-radius: 12px;
-          padding: 12px 14px;
-          margin-bottom: 14px;
-          border: 1px solid #f1e4b9;
+          background: var(--surface);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-radius: 14px;
+          margin-bottom: 16px;
+          border: 1px solid var(--line);
+          box-shadow: var(--shadow-card);
+          overflow: hidden;
+        }
+        .mini-guide-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 14px;
+          cursor: pointer;
+          user-select: none;
+          transition: background 0.15s;
+        }
+        .mini-guide-header:hover {
+          background: var(--glass);
         }
         .mini-guide-title {
           font-size: 13px;
           font-weight: 700;
-          color: #8b7355;
-          margin-bottom: 6px;
+          color: var(--crimson);
+          font-family: var(--font-display);
+        }
+        .mini-guide-chevron {
+          font-size: 12px;
+          color: var(--crimson);
+          transition: transform 0.2s;
+        }
+        .mini-guide-chevron.open {
+          transform: rotate(180deg);
+        }
+        .mini-guide-content {
+          padding: 0 14px 14px 14px;
         }
         .mini-guide-row {
           font-size: 12px;
-          color: #555;
+          color: var(--text);
           padding: 2px 0;
         }
         .mini-guide-example {
           font-size: 12px;
-          color: #555;
+          color: var(--muted);
           margin-top: 6px;
         }
         .mini-guide-mistake {
           font-size: 12px;
-          color: #8b7355;
+          color: var(--crimson);
           margin-top: 6px;
           font-weight: 600;
         }
         .mini-guide-note {
           font-size: 11px;
-          color: #a65f00;
+          color: var(--warning);
           margin-top: 6px;
           font-weight: 700;
         }
         .section-hint {
           font-size: 11px;
-          color: #777;
+          color: var(--muted);
           margin: -4px 0 8px;
         }
         .setting-hint {
           font-size: 11px;
-          color: #777;
+          color: var(--muted);
           margin: 4px 0 8px;
         }
         .input-hint {
           font-size: 11px;
-          color: #777;
+          color: var(--muted);
           margin: 4px 0 6px;
         }
         .item-hints-row {
           font-size: 11px;
-          color: #777;
+          color: var(--muted);
           margin: 4px 0 8px;
           display: flex;
           justify-content: space-between;
         }
 
         .card {
-          background: white;
-          border-radius: 14px;
-          padding: 20px;
+          background: var(--surface);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-radius: var(--radius-lg);
+          padding: 18px;
           margin-bottom: 14px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+          box-shadow: var(--shadow-card);
+          border: 1px solid var(--line);
         }
 
         .card-title {
           font-size: 14px;
-          font-weight: 600;
-          color: #5c4a3a;
+          font-weight: 700;
+          color: var(--text);
+          font-family: var(--font-display);
           margin-bottom: 14px;
         }
 
@@ -826,23 +1015,27 @@ export default function AshleyDealCalculator() {
         .pill {
           padding: 12px 18px;
           border-radius: 24px;
-          border: 2px solid #e0d8cf;
-          background: white;
+          border: 2px solid var(--line);
+          background: var(--surface);
           font-size: 15px;
           font-weight: 500;
-          color: #666;
+          color: var(--muted);
           cursor: pointer;
-          transition: all 0.15s;
-          min-height: 48px;
+          transition: all 0.2s;
+          min-height: var(--tap);
           display: flex;
           align-items: center;
           justify-content: center;
         }
-        .pill:hover { border-color: #8b7355; }
+        .pill:hover { 
+          border-color: var(--crimson);
+          color: var(--text);
+        }
         .pill.selected {
-          background: #8b7355;
-          border-color: #8b7355;
+          background: var(--crimson);
+          border-color: var(--crimson);
           color: white;
+          box-shadow: 0 0 12px var(--crimson-glow);
         }
         .pill.small { padding: 10px 14px; font-size: 14px; min-height: 44px; }
 
@@ -850,22 +1043,27 @@ export default function AshleyDealCalculator() {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          min-height: 48px;
+          min-height: var(--tap);
         }
-        .toggle-label { font-size: 15px; color: #333; }
-        .toggle-desc { font-size: 12px; color: #888; margin-top: 2px; }
+        .toggle-label { font-size: 15px; color: var(--text); }
+        .toggle-desc { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
         .toggle {
           width: 56px;
           height: 32px;
-          background: #ddd;
+          background: var(--surface-2);
+          border: 1px solid var(--line);
           border-radius: 16px;
           position: relative;
           cursor: pointer;
-          transition: background 0.2s;
+          transition: all 0.2s;
           flex-shrink: 0;
         }
-        .toggle.on { background: #8b7355; }
+        .toggle.on { 
+          background: var(--crimson);
+          border-color: var(--crimson);
+          box-shadow: 0 0 12px var(--crimson-glow);
+        }
         .toggle::after {
           content: '';
           position: absolute;
@@ -883,21 +1081,28 @@ export default function AshleyDealCalculator() {
         .input {
           width: 100%;
           padding: 14px 16px;
-          border: 2px solid #e0d8cf;
+          border: 2px solid var(--line);
           border-radius: 12px;
           font-size: 18px;
-          transition: border-color 0.15s;
+          background: var(--bg);
+          color: var(--text);
+          transition: all 0.2s;
           min-height: 56px;
         }
-        .input:focus { outline: none; border-color: #8b7355; }
-        .input::placeholder { color: #bbb; }
+        .input:focus { 
+          outline: none; 
+          border-color: var(--crimson);
+          box-shadow: 0 0 0 3px var(--crimson-glow);
+        }
+        .input::placeholder { color: var(--muted); }
         .input.small { padding: 12px 14px; font-size: 16px; min-height: 48px; }
 
         .item-row {
-          background: #faf8f5;
+          background: var(--surface-2);
           border-radius: 12px;
           padding: 16px;
           margin-bottom: 12px;
+          border: 1px solid var(--line);
         }
         .item-row-header {
           display: flex;
@@ -908,12 +1113,12 @@ export default function AshleyDealCalculator() {
         .item-number {
           font-size: 13px;
           font-weight: 600;
-          color: #8b7355;
+          color: var(--crimson);
         }
         .remove-btn {
-          background: #ffebee;
-          border: none;
-          color: #c62828;
+          background: rgba(248,113,113,0.15);
+          border: 1px solid rgba(248,113,113,0.3);
+          color: var(--danger);
           font-size: 20px;
           cursor: pointer;
           padding: 8px 12px;
@@ -923,6 +1128,10 @@ export default function AshleyDealCalculator() {
           display: flex;
           align-items: center;
           justify-content: center;
+          transition: all 0.2s;
+        }
+        .remove-btn:hover {
+          background: rgba(248,113,113,0.25);
         }
 
         .input-row {
@@ -943,19 +1152,19 @@ export default function AshleyDealCalculator() {
         .add-item-btn {
           width: 100%;
           padding: 14px;
-          background: white;
-          border: 2px dashed #d0c8bf;
+          background: var(--surface);
+          border: 2px dashed var(--line);
           border-radius: 12px;
-          color: #8b7355;
+          color: var(--crimson);
           font-size: 15px;
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.15s;
+          transition: all 0.2s;
           min-height: 52px;
         }
         .add-item-btn:hover {
-          background: #faf8f5;
-          border-color: #8b7355;
+          background: var(--glass);
+          border-color: var(--crimson);
         }
 
         .sticky-bottom {
@@ -964,8 +1173,9 @@ export default function AshleyDealCalculator() {
           left: 0;
           right: 0;
           padding: 16px;
-          background: linear-gradient(to top, #f8f6f3 80%, transparent);
+          background: linear-gradient(to top, var(--bg-deep) 80%, transparent);
           z-index: 50;
+          padding-bottom: calc(16px + env(safe-area-inset-bottom));
         }
         .sticky-bottom .calc-btn {
           max-width: 500px;
@@ -976,17 +1186,25 @@ export default function AshleyDealCalculator() {
         .calc-btn {
           width: 100%;
           padding: 18px;
-          background: #8b7355;
+          background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
           border: none;
           border-radius: 14px;
           color: white;
           font-size: 17px;
           font-weight: 700;
           cursor: pointer;
-          box-shadow: 0 4px 12px rgba(139, 115, 85, 0.3);
+          box-shadow: 0 8px 22px var(--crimson-glow), 0 4px 12px rgba(0,0,0,0.3);
           min-height: 56px;
+          transition: all 0.2s;
         }
-        .calc-btn:active { transform: scale(0.98); }
+        .calc-btn:hover {
+          box-shadow: 0 10px 28px var(--crimson-glow), 0 6px 16px rgba(0,0,0,0.4);
+          transform: translateY(-2px);
+        }
+        .calc-btn:active { 
+          transform: scale(0.98);
+          box-shadow: 0 4px 12px var(--crimson-glow);
+        }
         
         .result-overlay {
           position: fixed;
@@ -994,40 +1212,49 @@ export default function AshleyDealCalculator() {
           left: 0;
           right: 0;
           bottom: 0;
-          background: rgba(0,0,0,0.5);
+          background: rgba(15, 17, 23, 0.8);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
           display: flex;
-          align-items: flex-start;
+          align-items: flex-end;
           justify-content: center;
-          padding: 20px;
+          padding: 0;
           z-index: 100;
           overflow-y: auto;
         }
         .result-card {
-          background: white;
-          border-radius: 16px;
-          padding: 20px;
+          background: var(--surface);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
+          border-radius: 20px 20px 0 0;
+          padding: 0;
           width: 100%;
-          max-width: 420px;
-          margin: 20px 0;
+          max-width: 520px;
+          margin: 0 auto;
+          box-shadow: 0 -12px 30px rgba(0,0,0,0.4);
+          border: 1px solid var(--line);
+          overflow: hidden;
+          animation: sheetUp 0.22s ease-out;
         }
         .result-title {
           text-align: center;
           font-size: 18px;
           font-weight: 700;
-          color: #5c4a3a;
+          color: var(--text);
           margin-bottom: 16px;
         }
         
         .big-total {
           text-align: center;
           padding: 20px;
-          background: linear-gradient(135deg, #8b7355 0%, #6d5a45 100%);
+          background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
           border-radius: 12px;
           margin-bottom: 16px;
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
         }
         .big-total-label {
           font-size: 13px;
-          color: rgba(255,255,255,0.8);
+          color: rgba(255,255,255,0.9);
           margin-bottom: 4px;
         }
         .big-total-amount {
@@ -1037,7 +1264,7 @@ export default function AshleyDealCalculator() {
         }
         .big-total-sub {
           font-size: 12px;
-          color: rgba(255,255,255,0.7);
+          color: rgba(255,255,255,0.8);
           margin-top: 4px;
         }
         
@@ -1049,14 +1276,14 @@ export default function AshleyDealCalculator() {
           font-weight: 600;
           margin-top: 8px;
         }
-        .badge.green { background: #e8f5e9; color: #2e7d32; }
-        .badge.orange { background: #fff3e0; color: #f57c00; }
-        .badge.red { background: #ffebee; color: #c62828; }
+        .badge.green { background: rgba(52,211,153,0.2); color: var(--success); border: 1px solid rgba(52,211,153,0.3); }
+        .badge.orange { background: rgba(251,191,36,0.2); color: var(--warning); border: 1px solid rgba(251,191,36,0.3); }
+        .badge.red { background: rgba(248,113,113,0.2); color: var(--danger); border: 1px solid rgba(248,113,113,0.3); }
         
         .section-title {
           font-size: 12px;
           font-weight: 600;
-          color: #8b7355;
+          color: var(--crimson);
           text-transform: uppercase;
           letter-spacing: 0.5px;
           margin: 16px 0 8px;
@@ -1066,14 +1293,15 @@ export default function AshleyDealCalculator() {
           display: flex;
           justify-content: space-between;
           padding: 6px 0;
-          border-bottom: 1px solid #f0ebe5;
+          border-bottom: 1px solid var(--line);
         }
         .breakdown-row:last-child { border-bottom: none; }
-        .breakdown-label { color: #666; font-size: 13px; }
-        .breakdown-value { font-weight: 600; color: #333; font-size: 13px; }
+        .breakdown-label { color: var(--muted); font-size: 13px; }
+        .breakdown-value { font-weight: 600; color: var(--text); font-size: 13px; }
         
         .margin-item {
-          background: #faf8f5;
+          background: var(--surface-2);
+          border: 1px solid var(--line);
           border-radius: 10px;
           padding: 12px;
           margin-bottom: 10px;
@@ -1084,7 +1312,7 @@ export default function AshleyDealCalculator() {
           align-items: center;
           margin-bottom: 8px;
         }
-        .margin-item-name { font-weight: 600; color: #333; font-size: 14px; }
+        .margin-item-name { font-weight: 600; color: var(--text); font-size: 14px; }
         .margin-badge {
           padding: 4px 10px;
           border-radius: 12px;
@@ -1099,27 +1327,29 @@ export default function AshleyDealCalculator() {
         }
         .margin-price-box {
           flex: 1;
-          background: white;
-          border: 2px solid #e0d8cf;
+          background: var(--bg);
+          border: 2px solid var(--line);
           border-radius: 8px;
           padding: 8px 4px;
           text-align: center;
-          transition: all 0.15s;
+          transition: all 0.2s;
+          min-height: 52px;
         }
         .margin-price-box:hover {
-          border-color: #8b7355;
-          background: #faf8f5;
+          border-color: var(--crimson);
+          background: var(--glass);
         }
         .margin-price-box.current {
-          border-color: #8b7355;
-          background: #8b7355;
+          border-color: var(--crimson);
+          background: var(--crimson);
+          box-shadow: 0 0 12px var(--crimson-glow);
         }
         .margin-price-box.current .margin-price-label,
         .margin-price-box.current .margin-price-value {
           color: white;
         }
-        .margin-price-label { font-size: 10px; color: #666; }
-        .margin-price-value { font-size: 13px; font-weight: 600; margin-top: 2px; color: #333; }
+        .margin-price-label { font-size: 10px; color: var(--muted); }
+        .margin-price-value { font-size: 13px; font-weight: 600; margin-top: 2px; color: var(--text); }
         
         .result-buttons {
           display: flex;
@@ -1133,16 +1363,24 @@ export default function AshleyDealCalculator() {
           font-size: 14px;
           font-weight: 600;
           cursor: pointer;
+          transition: all 0.2s;
         }
         .result-btn.primary {
-          background: #8b7355;
+          background: var(--crimson);
           color: white;
           border: none;
+          box-shadow: 0 4px 12px var(--crimson-glow);
+        }
+        .result-btn.primary:hover {
+          box-shadow: 0 6px 16px var(--crimson-glow);
         }
         .result-btn.secondary {
-          background: white;
-          color: #8b7355;
-          border: 2px solid #8b7355;
+          background: var(--surface);
+          color: var(--crimson);
+          border: 2px solid var(--crimson);
+        }
+        .result-btn.secondary:hover {
+          background: var(--glass);
         }
         
         .help-overlay {
@@ -1151,7 +1389,9 @@ export default function AshleyDealCalculator() {
           left: 0;
           right: 0;
           bottom: 0;
-          background: rgba(0,0,0,0.6);
+          background: rgba(15, 17, 23, 0.8);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
           display: flex;
           align-items: flex-start;
           justify-content: center;
@@ -1160,16 +1400,20 @@ export default function AshleyDealCalculator() {
           overflow-y: auto;
         }
         .help-modal {
-          background: white;
+          background: var(--surface);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
           border-radius: 16px;
           padding: 24px;
           width: 100%;
           max-width: 480px;
           margin: 20px 0;
+          border: 1px solid var(--line);
+          box-shadow: var(--shadow-card);
         }
         .help-modal h2 {
           margin: 0 0 16px;
-          color: #5c4a3a;
+          color: var(--text);
           font-size: 20px;
         }
         .help-section {
@@ -1177,7 +1421,7 @@ export default function AshleyDealCalculator() {
         }
         .help-section h3 {
           font-size: 15px;
-          color: #8b7355;
+          color: var(--crimson);
           margin: 0 0 8px;
           display: flex;
           align-items: center;
@@ -1185,7 +1429,7 @@ export default function AshleyDealCalculator() {
         }
         .help-section p {
           font-size: 13px;
-          color: #555;
+          color: var(--text);
           line-height: 1.5;
           margin: 0;
         }
@@ -1193,7 +1437,7 @@ export default function AshleyDealCalculator() {
           margin: 8px 0 0;
           padding-left: 20px;
           font-size: 13px;
-          color: #555;
+          color: var(--text);
           line-height: 1.6;
         }
         .faq-item {
@@ -1202,22 +1446,22 @@ export default function AshleyDealCalculator() {
         .faq-q {
           font-size: 13px;
           font-weight: 600;
-          color: #5c4a3a;
+          color: var(--text);
         }
         .faq-a {
           font-size: 12px;
-          color: #555;
+          color: var(--muted);
           margin-top: 2px;
         }
         .glossary-item {
           font-size: 12px;
-          color: #555;
+          color: var(--text);
           margin-top: 6px;
         }
         .help-close {
           width: 100%;
           padding: 14px;
-          background: #8b7355;
+          background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
           color: white;
           border: none;
           border-radius: 10px;
@@ -1225,23 +1469,29 @@ export default function AshleyDealCalculator() {
           font-weight: 600;
           cursor: pointer;
           margin-top: 8px;
+          box-shadow: 0 4px 12px var(--crimson-glow);
+          transition: all 0.2s;
+        }
+        .help-close:hover {
+          box-shadow: 0 6px 16px var(--crimson-glow);
         }
         
         .quick-ref {
-          background: #fff8e1;
+          background: rgba(251,191,36,0.15);
+          border: 1px solid rgba(251,191,36,0.3);
           border-radius: 8px;
           padding: 12px;
           margin-top: 12px;
         }
-        .quick-ref-title { font-size: 12px; font-weight: 600; color: #8b7355; margin-bottom: 6px; }
-        .quick-ref-item { font-size: 12px; color: #666; padding: 2px 0; }
+        .quick-ref-title { font-size: 12px; font-weight: 600; color: var(--warning); margin-bottom: 6px; }
+        .quick-ref-item { font-size: 12px; color: var(--text); padding: 2px 0; }
 
         /* Wheel button */
         .wheel-btn {
           width: 48px;
           height: 48px;
-          background: #f5f2ef;
-          border: 2px solid #e0d8cf;
+          background: var(--surface);
+          border: 2px solid var(--line);
           border-radius: 12px;
           font-size: 20px;
           cursor: pointer;
@@ -1249,9 +1499,12 @@ export default function AshleyDealCalculator() {
           align-items: center;
           justify-content: center;
           flex-shrink: 0;
+          color: var(--text);
+          transition: all 0.2s;
         }
         .wheel-btn:active {
-          background: #e0d8cf;
+          background: var(--glass);
+          border-color: var(--crimson);
         }
 
         /* Scroll Wheel Picker Styles */
@@ -1261,18 +1514,23 @@ export default function AshleyDealCalculator() {
           left: 0;
           right: 0;
           bottom: 0;
-          background: rgba(0,0,0,0.6);
+          background: rgba(15, 17, 23, 0.8);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
           display: flex;
           align-items: flex-end;
           justify-content: center;
           z-index: 300;
         }
         .wheel-modal {
-          background: white;
+          background: var(--surface);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
           border-radius: 20px 20px 0 0;
           padding: 20px;
           width: 100%;
           max-width: 500px;
+          border: 1px solid var(--line);
           animation: slideUp 0.2s ease-out;
         }
         @keyframes slideUp {
@@ -1288,21 +1546,25 @@ export default function AshleyDealCalculator() {
         .wheel-title {
           font-size: 16px;
           font-weight: 600;
-          color: #5c4a3a;
+          color: var(--text);
         }
         .wheel-cancel {
           background: none;
           border: none;
           font-size: 15px;
-          color: #888;
+          color: var(--muted);
           cursor: pointer;
           padding: 8px;
+          transition: color 0.2s;
+        }
+        .wheel-cancel:hover {
+          color: var(--text);
         }
         .wheel-display {
           text-align: center;
           font-size: 36px;
           font-weight: 700;
-          color: #8b7355;
+          color: var(--crimson);
           padding: 12px;
           margin-bottom: 8px;
         }
@@ -1312,9 +1574,10 @@ export default function AshleyDealCalculator() {
           align-items: center;
           gap: 4px;
           padding: 16px 0;
-          background: #f8f6f3;
+          background: var(--bg);
           border-radius: 16px;
           margin-bottom: 16px;
+          border: 1px solid var(--line);
         }
         .wheel-column {
           display: flex;
@@ -1331,45 +1594,47 @@ export default function AshleyDealCalculator() {
           background: transparent;
           border: none;
           font-size: 20px;
-          color: #8b7355;
+          color: var(--crimson);
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
           border-radius: 8px;
+          transition: all 0.2s;
         }
         .wheel-arrow:active {
-          background: #e0d8cf;
+          background: var(--glass);
         }
         .wheel-value {
           font-size: 32px;
           font-weight: 700;
-          color: #333;
+          color: var(--text);
           height: 48px;
           display: flex;
           align-items: center;
           justify-content: center;
-          background: white;
+          background: var(--surface);
           border-radius: 8px;
           width: 100%;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+          border: 1px solid var(--line);
         }
         .wheel-separator {
           font-size: 32px;
           font-weight: 700;
-          color: #333;
+          color: var(--text);
           padding: 0 2px;
         }
         .wheel-label {
           font-size: 10px;
-          color: #888;
+          color: var(--muted);
           margin-top: 4px;
           text-transform: uppercase;
         }
         .wheel-confirm {
           width: 100%;
           padding: 18px;
-          background: #8b7355;
+          background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
           border: none;
           border-radius: 14px;
           color: white;
@@ -1377,6 +1642,11 @@ export default function AshleyDealCalculator() {
           font-weight: 700;
           cursor: pointer;
           min-height: 56px;
+          box-shadow: 0 8px 22px var(--crimson-glow), 0 4px 12px rgba(0,0,0,0.3);
+          transition: all 0.2s;
+        }
+        .wheel-confirm:hover {
+          box-shadow: 0 10px 28px var(--crimson-glow), 0 6px 16px rgba(0,0,0,0.4);
         }
 
         /* Helper/Tutorial Overlay */
@@ -1386,7 +1656,9 @@ export default function AshleyDealCalculator() {
           left: 0;
           right: 0;
           bottom: 0;
-          background: rgba(0,0,0,0.7);
+          background: rgba(15, 17, 23, 0.85);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
           z-index: 400;
           display: flex;
           flex-direction: column;
@@ -1396,21 +1668,25 @@ export default function AshleyDealCalculator() {
         .helper-spotlight {
           position: absolute;
           border-radius: 16px;
-          box-shadow: 0 0 0 9999px rgba(0,0,0,0.7);
+          box-shadow: 0 0 0 9999px rgba(15, 17, 23, 0.85);
           pointer-events: none;
         }
         .helper-card {
-          background: white;
+          background: var(--surface);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
           border-radius: 16px;
           padding: 20px;
           max-width: 500px;
           margin: 0 auto;
           width: 100%;
+          border: 1px solid var(--line);
+          box-shadow: var(--shadow-card);
           animation: slideUp 0.2s ease-out;
         }
         .helper-step-badge {
           display: inline-block;
-          background: #8b7355;
+          background: var(--crimson);
           color: white;
           font-size: 12px;
           font-weight: 700;
@@ -1421,12 +1697,12 @@ export default function AshleyDealCalculator() {
         .helper-title {
           font-size: 18px;
           font-weight: 700;
-          color: #5c4a3a;
+          color: var(--text);
           margin-bottom: 8px;
         }
         .helper-desc {
           font-size: 14px;
-          color: #666;
+          color: var(--muted);
           line-height: 1.5;
           margin-bottom: 16px;
         }
@@ -1442,16 +1718,25 @@ export default function AshleyDealCalculator() {
           font-weight: 600;
           cursor: pointer;
           min-height: 48px;
+          transition: all 0.2s;
         }
         .helper-btn.primary {
-          background: #8b7355;
+          background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
           color: white;
           border: none;
+          box-shadow: 0 4px 12px var(--crimson-glow);
+        }
+        .helper-btn.primary:hover {
+          box-shadow: 0 6px 16px var(--crimson-glow);
         }
         .helper-btn.secondary {
-          background: #f5f2ef;
-          color: #666;
-          border: none;
+          background: var(--surface-2);
+          color: var(--muted);
+          border: 1px solid var(--line);
+        }
+        .helper-btn.secondary:hover {
+          background: var(--glass);
+          color: var(--text);
         }
         .helper-progress {
           display: flex;
@@ -1463,15 +1748,15 @@ export default function AshleyDealCalculator() {
           width: 8px;
           height: 8px;
           border-radius: 50%;
-          background: #ddd;
+          background: var(--surface-2);
         }
         .helper-dot.active {
-          background: #8b7355;
+          background: var(--crimson);
           width: 24px;
           border-radius: 4px;
         }
         .helper-dot.completed {
-          background: #8b7355;
+          background: var(--crimson);
         }
 
         /* Pulsing animation for highlighted sections */
@@ -1490,10 +1775,13 @@ export default function AshleyDealCalculator() {
 
         /* Settings Accordion */
         .settings-accordion {
-          background: white;
+          background: var(--surface);
+          backdrop-filter: blur(12px);
+          -webkit-backdrop-filter: blur(12px);
           border-radius: 14px;
           margin-bottom: 14px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+          box-shadow: var(--shadow-card);
+          border: 1px solid var(--line);
           overflow: hidden;
         }
         .settings-accordion-header {
@@ -1506,19 +1794,19 @@ export default function AshleyDealCalculator() {
           transition: background 0.15s;
         }
         .settings-accordion-header:hover {
-          background: #faf8f5;
+          background: var(--glass);
         }
         .settings-accordion-title {
           font-size: 14px;
           font-weight: 600;
-          color: #5c4a3a;
+          color: var(--text);
           display: flex;
           align-items: center;
           gap: 8px;
         }
         .settings-accordion-chevron {
           font-size: 12px;
-          color: #8b7355;
+          color: var(--crimson);
           transition: transform 0.2s;
         }
         .settings-accordion-chevron.open {
@@ -1541,13 +1829,13 @@ export default function AshleyDealCalculator() {
         .setting-label {
           font-size: 11px;
           font-weight: 600;
-          color: #666;
+          color: var(--muted);
           text-transform: uppercase;
           letter-spacing: 0.3px;
         }
         .setting-preview {
           font-size: 12px;
-          color: #8b7355;
+          color: var(--crimson);
           font-weight: 500;
         }
 
@@ -1560,61 +1848,69 @@ export default function AshleyDealCalculator() {
         .pill-compact {
           padding: 8px 12px;
           border-radius: 20px;
-          border: 2px solid #e0d8cf;
-          background: white;
+          border: 2px solid var(--line);
+          background: var(--surface);
           font-size: 13px;
           font-weight: 500;
-          color: #666;
+          color: var(--muted);
           cursor: pointer;
-          transition: all 0.15s;
+          transition: all 0.2s;
           min-height: 36px;
           display: flex;
           align-items: center;
           justify-content: center;
         }
-        .pill-compact:hover { border-color: #8b7355; }
+        .pill-compact:hover { 
+          border-color: var(--crimson);
+          color: var(--text);
+        }
         .pill-compact.selected {
-          background: #8b7355;
-          border-color: #8b7355;
+          background: var(--crimson);
+          border-color: var(--crimson);
           color: white;
+          box-shadow: 0 0 8px var(--crimson-glow);
         }
 
         /* Select dropdown for item types */
         .select-input {
           width: 100%;
           padding: 10px 14px;
-          border: 2px solid #e0d8cf;
+          border: 2px solid var(--line);
           border-radius: 10px;
           font-size: 14px;
-          background: white;
-          color: #333;
+          background: var(--bg);
+          color: var(--text);
           cursor: pointer;
-          transition: border-color 0.15s;
+          transition: all 0.2s;
           appearance: none;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b7355' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23E23744' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
           background-repeat: no-repeat;
           background-position: right 12px center;
         }
         .select-input:focus {
           outline: none;
-          border-color: #8b7355;
+          border-color: var(--crimson);
+          box-shadow: 0 0 0 3px var(--crimson-glow);
         }
 
         /* Compact item card */
         .item-card-compact {
-          background: #faf8f5;
+          background: var(--surface-2);
+          border: 1px solid var(--line);
           border-radius: 12px;
           padding: 12px;
           margin-bottom: 10px;
+          overflow: hidden;
         }
         .item-header-row {
           display: flex;
           gap: 8px;
           align-items: center;
           margin-bottom: 10px;
+          flex-wrap: wrap;
         }
         .item-number-badge {
-          background: #8b7355;
+          background: var(--crimson);
           color: white;
           font-size: 11px;
           font-weight: 700;
@@ -1625,20 +1921,22 @@ export default function AshleyDealCalculator() {
         .input-qty-compact {
           width: 56px;
           padding: 8px 10px;
-          border: 2px solid #e0d8cf;
+          border: 2px solid var(--line);
           border-radius: 8px;
           font-size: 14px;
           text-align: center;
-          color: #333;
+          background: var(--bg);
+          color: var(--text);
         }
         .input-qty-compact:focus {
           outline: none;
-          border-color: #8b7355;
+          border-color: var(--crimson);
+          box-shadow: 0 0 0 3px var(--crimson-glow);
         }
         .remove-btn-compact {
-          background: #ffebee;
-          border: none;
-          color: #c62828;
+          background: rgba(248,113,113,0.15);
+          border: 1px solid rgba(248,113,113,0.3);
+          color: var(--danger);
           font-size: 18px;
           cursor: pointer;
           padding: 6px 10px;
@@ -1648,21 +1946,22 @@ export default function AshleyDealCalculator() {
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: all 0.15s;
+          transition: all 0.2s;
         }
         .remove-btn-compact:hover {
-          background: #ffcdd2;
+          background: rgba(248,113,113,0.25);
         }
         .input-row-compact {
           display: flex;
+          flex-direction: column;
           gap: 8px;
         }
         .input-group-compact {
-          flex: 1;
+          width: 100%;
         }
         .input-label-mini {
           font-size: 10px;
-          color: #666;
+          color: var(--muted);
           margin-bottom: 4px;
           display: block;
           text-transform: uppercase;
@@ -1675,21 +1974,23 @@ export default function AshleyDealCalculator() {
         .input-compact {
           flex: 1;
           padding: 10px 12px;
-          border: 2px solid #e0d8cf;
+          border: 2px solid var(--line);
           border-radius: 8px;
           font-size: 15px;
           min-height: 42px;
-          color: #333;
+          background: var(--bg);
+          color: var(--text);
         }
         .input-compact:focus {
           outline: none;
-          border-color: #8b7355;
+          border-color: var(--crimson);
+          box-shadow: 0 0 0 3px var(--crimson-glow);
         }
         .wheel-btn-compact {
           width: 42px;
           height: 42px;
-          background: #f5f2ef;
-          border: 2px solid #e0d8cf;
+          background: var(--surface);
+          border: 2px solid var(--line);
           border-radius: 8px;
           font-size: 16px;
           cursor: pointer;
@@ -1697,24 +1998,47 @@ export default function AshleyDealCalculator() {
           align-items: center;
           justify-content: center;
           flex-shrink: 0;
-          transition: all 0.15s;
+          transition: all 0.2s;
+          color: var(--text);
         }
         .wheel-btn-compact:active {
-          background: #e0d8cf;
+          background: var(--glass);
+          border-color: var(--crimson);
+        }
+        .estimate-link-btn {
+          background: none;
+          border: none;
+          color: var(--crimson);
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          padding: 4px 0 0 0;
+          text-decoration: underline;
+          text-underline-offset: 2px;
+          text-align: left;
+          transition: color 0.2s;
+        }
+        .estimate-link-btn:active {
+          color: var(--primary-strong);
         }
 
         /* Toggle compact */
         .toggle-compact {
           width: 48px;
           height: 28px;
-          background: #ddd;
+          background: var(--surface-2);
+          border: 1px solid var(--line);
           border-radius: 14px;
           position: relative;
           cursor: pointer;
-          transition: background 0.2s;
+          transition: all 0.2s;
           flex-shrink: 0;
         }
-        .toggle-compact.on { background: #8b7355; }
+        .toggle-compact.on { 
+          background: var(--crimson);
+          border-color: var(--crimson);
+          box-shadow: 0 0 8px var(--crimson-glow);
+        }
         .toggle-compact::after {
           content: '';
           position: absolute;
@@ -1744,27 +2068,28 @@ export default function AshleyDealCalculator() {
         .calc-btn-enhanced {
           width: 100%;
           padding: 16px;
-          background: linear-gradient(135deg, #8b7355 0%, #6d5a45 100%);
+          background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
           border: none;
           border-radius: 14px;
           color: white;
           font-size: 17px;
           font-weight: 700;
           cursor: pointer;
-          box-shadow: 0 4px 12px rgba(139, 115, 85, 0.3);
+          box-shadow: 0 8px 22px var(--crimson-glow), 0 4px 12px rgba(0,0,0,0.3);
           min-height: 56px;
           transition: all 0.2s;
         }
         .calc-btn-enhanced:hover {
           transform: translateY(-2px);
-          box-shadow: 0 6px 16px rgba(139, 115, 85, 0.4);
+          box-shadow: 0 10px 28px var(--crimson-glow), 0 6px 16px rgba(0,0,0,0.4);
         }
         .calc-btn-enhanced:active {
           transform: translateY(0);
+          box-shadow: 0 4px 12px var(--crimson-glow);
         }
         .calc-btn-enhanced:disabled {
-          background: #e0d8cf;
-          color: #999;
+          background: var(--surface-2);
+          color: var(--muted);
           box-shadow: none;
           cursor: not-allowed;
         }
@@ -1799,14 +2124,326 @@ export default function AshleyDealCalculator() {
           from { opacity: 0; transform: translateX(-50%) translateY(20px); }
           to { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
+
+        /* Warm craft overrides */
+        .header {
+          position: sticky;
+          top: 10px;
+          z-index: 40;
+          background: linear-gradient(135deg, #6f5036 0%, #8a6341 100%);
+          padding: 14px 16px;
+          margin: 0 0 16px 0;
+          border-radius: var(--radius-lg);
+          box-shadow: var(--shadow-soft);
+          border: 1px solid rgba(255,255,255,0.15);
+        }
+        .header h1 {
+          margin: 0;
+          font-size: 20px;
+          color: #fffaf4;
+          font-weight: 700;
+          font-family: var(--font-display);
+          letter-spacing: 0.3px;
+        }
+        .header p {
+          margin: 2px 0 0;
+          font-size: 11px;
+          color: rgba(255,255,255,0.85);
+        }
+        .header-menu-btn,
+        .header-reset-btn {
+          background: rgba(255,255,255,0.18);
+          border: 1px solid rgba(255,255,255,0.2);
+          width: var(--tap);
+          height: var(--tap);
+          border-radius: 12px;
+          font-size: 18px;
+          color: white;
+        }
+        .header-menu {
+          border-radius: 14px;
+          border: 1px solid var(--line);
+          box-shadow: var(--shadow-card);
+        }
+
+        .mode-tabs {
+          display: flex;
+          background: var(--surface);
+          border-radius: 16px;
+          padding: 4px;
+          margin-bottom: 14px;
+          border: 1px solid var(--line);
+          box-shadow: var(--shadow-card);
+        }
+        .mode-tab {
+          min-height: var(--tap);
+          border-radius: 12px;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--muted);
+        }
+        .mode-tab.active {
+          background: var(--primary);
+          color: white;
+        }
+        .mode-hint {
+          font-size: 12px;
+          color: var(--muted);
+        }
+        .mini-guide {
+          background: var(--surface-2);
+          border: 1px solid #ecd9c2;
+          border-radius: 14px;
+          margin-bottom: 16px;
+          box-shadow: var(--shadow-card);
+          overflow: hidden;
+        }
+        .mini-guide-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 14px;
+          cursor: pointer;
+          user-select: none;
+          transition: background 0.15s;
+        }
+        .mini-guide-header:hover {
+          background: var(--surface-3);
+        }
+        .mini-guide-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--primary);
+          font-family: var(--font-display);
+        }
+        .mini-guide-chevron {
+          font-size: 12px;
+          color: var(--primary);
+          transition: transform 0.2s;
+        }
+        .mini-guide-chevron.open {
+          transform: rotate(180deg);
+        }
+        .mini-guide-content {
+          padding: 0 14px 14px 14px;
+        }
+        .card {
+          background: var(--surface);
+          border-radius: var(--radius-lg);
+          padding: 18px;
+          margin-bottom: 14px;
+          box-shadow: var(--shadow-card);
+          border: 1px solid var(--line);
+        }
+        .card-title {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--primary-strong);
+          font-family: var(--font-display);
+        }
+        .section-hint,
+        .setting-hint,
+        .input-hint {
+          color: var(--muted);
+        }
+
+        .pill,
+        .pill-compact {
+          border-color: var(--line);
+          color: var(--muted);
+          min-height: var(--tap);
+        }
+        .pill.selected,
+        .pill-compact.selected {
+          background: var(--primary);
+          border-color: var(--primary);
+          color: white;
+        }
+        .toggle.on,
+        .toggle-compact.on {
+          background: var(--primary);
+        }
+
+        .input,
+        .input-compact,
+        .input-qty-compact {
+          border-color: var(--line);
+          background: var(--bg);
+          color: var(--text);
+          min-height: var(--tap);
+        }
+        .input:focus,
+        .input-compact:focus,
+        .input-qty-compact:focus,
+        .select-input:focus {
+          border-color: var(--crimson);
+          box-shadow: 0 0 0 3px var(--crimson-glow);
+        }
+        .select-input {
+          border-color: var(--line);
+          background-color: var(--bg);
+        }
+        .input-error {
+          border-color: var(--danger);
+          box-shadow: 0 0 0 3px rgba(248,113,113,0.15);
+        }
+        .error-text {
+          color: var(--danger);
+          font-size: 12px;
+          margin-top: 6px;
+          margin-bottom: 6px;
+          font-weight: 600;
+        }
+
+        .item-card-compact {
+          background: var(--surface-2);
+          border: 1px solid var(--line);
+        }
+        .item-number-badge {
+          background: var(--crimson);
+        }
+        .remove-btn-compact {
+          min-width: var(--tap);
+          min-height: var(--tap);
+        }
+
+        .add-item-btn {
+          min-height: var(--tap);
+          border-color: var(--line);
+          color: var(--crimson);
+        }
+
+        .sticky-bottom {
+          padding-bottom: calc(16px + env(safe-area-inset-bottom));
+          background: linear-gradient(to top, var(--bg-deep) 65%, transparent);
+        }
+        .calc-btn-enhanced {
+          background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
+          box-shadow: 0 8px 22px var(--crimson-glow), 0 4px 12px rgba(0,0,0,0.3);
+          min-height: 56px;
+        }
+
+        .result-overlay {
+          align-items: flex-end;
+          padding: 0;
+          background: rgba(15, 17, 23, 0.8);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        }
+        .result-card {
+          width: 100%;
+          max-width: 520px;
+          border-radius: 20px 20px 0 0;
+          margin: 0 auto;
+          padding: 0;
+          box-shadow: 0 -12px 30px rgba(0,0,0,0.4);
+          border: 1px solid var(--line);
+          overflow: hidden;
+          animation: sheetUp 0.22s ease-out;
+        }
+        .sheet-handle {
+          width: 42px;
+          height: 5px;
+          background: var(--line);
+          border-radius: 999px;
+          margin: 8px auto 6px;
+        }
+        .sheet-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px 16px 0;
+          border-bottom: 2px solid var(--crimson);
+        }
+        .sheet-title {
+          font-size: 16px;
+          font-weight: 700;
+          color: var(--text);
+        }
+        .sheet-close {
+          background: var(--glass);
+          border: 1px solid var(--line);
+          border-radius: 10px;
+          min-width: 40px;
+          min-height: 40px;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text);
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .sheet-close:hover {
+          background: var(--surface-2);
+          border-color: var(--crimson);
+        }
+        .sheet-content {
+          padding: 12px 16px 20px;
+          max-height: 78vh;
+          overflow: auto;
+          padding-bottom: calc(20px + env(safe-area-inset-bottom));
+          background: var(--surface);
+        }
+        @keyframes sheetUp {
+          from { transform: translateY(20%); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+
+        .big-total {
+          border-radius: 14px;
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
+        }
+        .section-title {
+          color: var(--crimson);
+        }
+        .margin-item {
+          border: 1px solid var(--line);
+          background: var(--surface-2);
+        }
+        .margin-price-box {
+          min-height: 52px;
+        }
+
+        details.result-section {
+          border: 1px solid var(--line);
+          border-radius: 14px;
+          padding: 10px 12px;
+          margin: 12px 0;
+          background: var(--surface-2);
+        }
+        details.result-section summary {
+          list-style: none;
+          cursor: pointer;
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--text);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          min-height: var(--tap);
+        }
+        details.result-section summary::-webkit-details-marker { display: none; }
+        .summary-chevron {
+          font-size: 12px;
+          color: var(--muted);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          * { animation: none !important; transition: none !important; }
+        }
       `}</style>
 
       <div className="container">
         {/* Redesigned Header */}
         <div className="header">
-          <div style={{ width: 40 }}></div>
+          <button
+            className="header-reset-btn"
+            onClick={startOver}
+            aria-label="Start Over"
+          >
+            ↺
+          </button>
           <div className="header-content">
-            <h1>Deal Calculator</h1>
+            <h1>Deal Depth</h1>
             <p>Ashley HomeStore • Gilroy</p>
           </div>
           <button
@@ -1869,20 +2506,30 @@ export default function AshleyDealCalculator() {
         </div>
 
         <div className="mini-guide">
-          <div className="mini-guide-title">{currentGuide.title}</div>
-          {currentGuide.steps.map((step, index) => (
-            <div key={`${currentGuide.title}-${index}`} className="mini-guide-row">
-              {index + 1}. {step}
+          <div
+            className="mini-guide-header"
+            onClick={() => setGuideExpanded(!guideExpanded)}
+          >
+            <div className="mini-guide-title">{currentGuide.title}</div>
+            <span className={`mini-guide-chevron ${guideExpanded ? 'open' : ''}`}>▼</span>
+          </div>
+          {guideExpanded && (
+            <div className="mini-guide-content">
+              {currentGuide.steps.map((step, index) => (
+                <div key={`${currentGuide.title}-${index}`} className="mini-guide-row">
+                  {index + 1}. {step}
+                </div>
+              ))}
+              {currentGuide.example && (
+                <div className="mini-guide-example">Example: {currentGuide.example}</div>
+              )}
+              {currentGuide.mistake && (
+                <div className="mini-guide-mistake">Common mistake: {currentGuide.mistake}</div>
+              )}
+              {currentGuide.note && (
+                <div className="mini-guide-note">{currentGuide.note}</div>
+              )}
             </div>
-          ))}
-          {currentGuide.example && (
-            <div className="mini-guide-example">Example: {currentGuide.example}</div>
-          )}
-          {currentGuide.mistake && (
-            <div className="mini-guide-mistake">Common mistake: {currentGuide.mistake}</div>
-          )}
-          {currentGuide.note && (
-            <div className="mini-guide-note">{currentGuide.note}</div>
           )}
         </div>
 
@@ -1992,10 +2639,13 @@ export default function AshleyDealCalculator() {
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="text"
-                className="input"
+                className={`input ${errors.otdPrice ? 'input-error' : ''}`}
                 placeholder="$0.00"
                 value={otdPrice}
-                onChange={(e) => setOtdPrice(e.target.value)}
+                onChange={(e) => {
+                  setOtdPrice(e.target.value);
+                  clearError('otdPrice');
+                }}
                 inputMode="decimal"
                 style={{ flex: 1, fontSize: '20px', fontWeight: '600' }}
               />
@@ -2008,9 +2658,12 @@ export default function AshleyDealCalculator() {
                 🎚️
               </button>
             </div>
-            <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+            <div style={{ marginTop: '8px', fontSize: '12px', color: colors.text.secondary }}>
               Enter customer total offer (tax + delivery included)
             </div>
+            {errors.otdPrice && (
+              <div className="error-text">{errors.otdPrice}</div>
+            )}
           </div>
         )}
 
@@ -2024,9 +2677,15 @@ export default function AshleyDealCalculator() {
               ? 'Only landing cost is needed in OTD mode.'
               : 'Add items and prices. Name is optional.'}
           </div>
+          {errors.price && (
+            <div className="error-text">{errors.price}</div>
+          )}
+          {errors.landingCost && (
+            <div className="error-text">{errors.landingCost}</div>
+          )}
 
           {items.map((item, index) => (
-            <div key={item.id} className="item-card-compact">
+            <div key={item.id} className="item-card-compact" data-item>
               {/* Header Row: Badge, Dropdown/Custom, Qty, Remove */}
               <div className="item-header-row">
                 <span className="item-number-badge">#{index + 1}</span>
@@ -2133,7 +2792,7 @@ export default function AshleyDealCalculator() {
                     <div className="input-with-wheel">
                       <input
                         type="text"
-                        className="input-compact"
+                        className={`input-compact ${errors.price ? 'input-error' : ''}`}
                         placeholder="$0.00"
                         value={item.price}
                         onChange={(e) => updateItemPrice(item.id, e.target.value)}
@@ -2154,7 +2813,7 @@ export default function AshleyDealCalculator() {
                   <div className="input-with-wheel">
                     <input
                       type="text"
-                      className="input-compact"
+                      className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
                       placeholder="$0.00"
                       value={item.landingCost}
                       onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
@@ -2167,6 +2826,12 @@ export default function AshleyDealCalculator() {
                       🎚️
                     </button>
                   </div>
+                  <button
+                    className="estimate-link-btn"
+                    onClick={() => estimateLandingCost(item.id)}
+                  >
+                    Est. from retail ÷ 3.3
+                  </button>
                 </div>
               </div>
             </div>
@@ -2188,10 +2853,15 @@ export default function AshleyDealCalculator() {
       {/* Results Modal */}
       {showResults && (
         <div className="result-overlay" onClick={resetForm}>
-          <div className="result-card" style={{ padding: 14 }} onClick={e => e.stopPropagation()}>
-            <div className="result-title" style={{ fontSize: 16, marginBottom: 12 }}>
-              {mode === 'quote' ? '💵 Your Quote' : mode === 'margin' ? '📊 Margin Analysis' : '🎯 OTD Analysis'}
+          <div className="result-card" onClick={e => e.stopPropagation()}>
+            <div className="sheet-handle" />
+            <div className="sheet-header">
+              <div className="sheet-title">
+                {mode === 'quote' ? 'Your Quote' : mode === 'margin' ? 'Margin Analysis' : 'OTD Analysis'}
+              </div>
+              <button className="sheet-close" onClick={resetForm}>Close</button>
             </div>
+            <div className="sheet-content">
 
             {/* Quick Quote Results */}
             {mode === 'quote' && (
@@ -2205,31 +2875,36 @@ export default function AshleyDealCalculator() {
                       <div className="big-total-sub">Tax included • Ready to pay</div>
                     </div>
 
-                    <div style={{ background: '#e8f5e9', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
-                      <div style={{ fontSize: '12px', color: '#2e7d32', fontWeight: 600, marginBottom: '4px' }}>💬 Tell Customer:</div>
-                      <div style={{ fontSize: '15px', color: '#333', fontWeight: 600 }}>
+                    <div style={{ background: colors.success.light, borderRadius: '8px', padding: '12px', marginBottom: '12px', border: `1px solid ${colors.success.main}40` }}>
+                      <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>💬 Tell Customer:</div>
+                      <div style={{ fontSize: '15px', color: colors.text.primary, fontWeight: 600 }}>
                         "Your total is {formatMoney(customerTotal)} — that includes everything!"
                       </div>
                     </div>
 
-                    <div className="section-title">📝 For Invoice (What to Write)</div>
-                    <div style={{ background: '#fff8e1', borderRadius: '8px', padding: '12px' }}>
-                      {calculatedItems.map((item, i) => (
-                        <div key={item.id} className="breakdown-row" style={{ padding: '3px 0' }}>
-                          <span style={{ fontSize: '13px' }}>{item.name || `Item ${i + 1}`} × {item.qty}</span>
-                          <span style={{ fontWeight: 600 }}>{formatMoney(item.lineTotal)}</span>
+                    <details className="result-section" open>
+                      <summary>
+                        Invoice Details
+                        <span className="summary-chevron">▼</span>
+                      </summary>
+                      <div style={{ background: colors.warning.light, borderRadius: '8px', padding: '12px', marginTop: '8px', border: `1px solid ${colors.warning.main}40` }}>
+                        {calculatedItems.map((item, i) => (
+                          <div key={item.id} className="breakdown-row" style={{ padding: '3px 0' }}>
+                            <span style={{ fontSize: '13px', color: colors.text.primary }}>{item.name || `Item ${i + 1}`} × {item.qty}</span>
+                            <span style={{ fontWeight: 600, color: colors.text.primary }}>{formatMoney(item.lineTotal)}</span>
+                          </div>
+                        ))}
+                        {deliveryAmount > 0 && (
+                          <div className="breakdown-row" style={{ padding: '3px 0' }}>
+                            <span style={{ fontSize: '13px', color: colors.text.primary }}>Delivery</span>
+                            <span style={{ fontWeight: 600, color: colors.text.primary }}>{formatMoney(deliveryAmount)}</span>
+                          </div>
+                        )}
+                        <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
+                          Tax auto-calculates to {formatMoney(totalTax)} → Total = {formatMoney(customerTotal)} ✓
                         </div>
-                      ))}
-                      {deliveryAmount > 0 && (
-                        <div className="breakdown-row" style={{ padding: '3px 0' }}>
-                          <span style={{ fontSize: '13px' }}>Delivery</span>
-                          <span style={{ fontWeight: 600 }}>{formatMoney(deliveryAmount)}</span>
-                        </div>
-                      )}
-                      <div style={{ fontSize: '11px', color: '#666', marginTop: '8px', fontStyle: 'italic' }}>
-                        Tax auto-calculates to {formatMoney(totalTax)} → Total = {formatMoney(customerTotal)} ✓
                       </div>
-                    </div>
+                    </details>
                   </>
                 ) : (
                   /* No-Tax Promo OFF - Show price + tax separately */
@@ -2240,41 +2915,48 @@ export default function AshleyDealCalculator() {
                       <div className="big-total-sub">+ {formatMoney(totalTax)} tax at register</div>
                     </div>
 
-                    <div className="section-title">Breakdown</div>
-                    {calculatedItems.map((item, i) => (
-                      <div key={item.id} className="breakdown-row">
-                        <span className="breakdown-label">
-                          {item.name || `Item ${i + 1}`} × {item.qty}
-                        </span>
-                        <span className="breakdown-value">{formatMoney(item.lineTotal)}</span>
+                    <details className="result-section" open>
+                      <summary>
+                        Breakdown
+                        <span className="summary-chevron">▼</span>
+                      </summary>
+                      <div style={{ marginTop: '8px' }}>
+                        {calculatedItems.map((item, i) => (
+                          <div key={item.id} className="breakdown-row">
+                            <span className="breakdown-label">
+                              {item.name || `Item ${i + 1}`} × {item.qty}
+                            </span>
+                            <span className="breakdown-value">{formatMoney(item.lineTotal)}</span>
+                          </div>
+                        ))}
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">Merchandise Subtotal</span>
+                          <span className="breakdown-value">{formatMoney(subtotal)}</span>
+                        </div>
+                        {deliveryAmount > 0 && (
+                          <div className="breakdown-row">
+                            <span className="breakdown-label">Delivery</span>
+                            <span className="breakdown-value">{formatMoney(deliveryAmount)}</span>
+                          </div>
+                        )}
+                        <div className="breakdown-row" style={{ background: colors.primary[50], margin: '0 -20px', padding: '8px 20px' }}>
+                          <span className="breakdown-label" style={{ fontWeight: 600 }}>Subtotal</span>
+                          <span className="breakdown-value">{formatMoney(subtotal + deliveryAmount)}</span>
+                        </div>
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">+ Tax (9.125%)</span>
+                          <span className="breakdown-value">{formatMoney(totalTax)}</span>
+                        </div>
+                        <div className="breakdown-row" style={{ background: colors.primary[50], margin: '0 -20px', padding: '10px 20px' }}>
+                          <span className="breakdown-label" style={{ fontWeight: 600 }}>Customer Pays</span>
+                          <span className="breakdown-value" style={{ fontSize: '18px' }}>{formatMoney(customerTotal)}</span>
+                        </div>
                       </div>
-                    ))}
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">Merchandise Subtotal</span>
-                      <span className="breakdown-value">{formatMoney(subtotal)}</span>
-                    </div>
-                    {deliveryAmount > 0 && (
-                      <div className="breakdown-row">
-                        <span className="breakdown-label">Delivery</span>
-                        <span className="breakdown-value">{formatMoney(deliveryAmount)}</span>
-                      </div>
-                    )}
-                    <div className="breakdown-row" style={{ background: '#f5f2ef', margin: '0 -20px', padding: '8px 20px' }}>
-                      <span className="breakdown-label" style={{ fontWeight: 600 }}>Subtotal</span>
-                      <span className="breakdown-value">{formatMoney(subtotal + deliveryAmount)}</span>
-                    </div>
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">+ Tax (9.125%)</span>
-                      <span className="breakdown-value">{formatMoney(totalTax)}</span>
-                    </div>
-                    <div className="breakdown-row" style={{ background: '#f5f2ef', margin: '0 -20px', padding: '10px 20px' }}>
-                      <span className="breakdown-label" style={{ fontWeight: 600 }}>Customer Pays</span>
-                      <span className="breakdown-value" style={{ fontSize: '18px' }}>{formatMoney(customerTotal)}</span>
-                    </div>
+                    </details>
                     
-                    <div style={{ background: '#e8f5e9', borderRadius: '8px', padding: '12px', marginTop: '12px' }}>
-                      <div style={{ fontSize: '12px', color: '#2e7d32', fontWeight: 600, marginBottom: '4px' }}>💬 Tell Customer:</div>
-                      <div style={{ fontSize: '13px', color: '#666' }}>
+                    <div style={{ background: colors.success.light, borderRadius: '8px', padding: '12px', marginTop: '12px', border: `1px solid ${colors.success.main}40` }}>
+                      <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>💬 Tell Customer:</div>
+                      <div style={{ fontSize: '13px', color: colors.text.secondary }}>
                         "{formatMoney(subtotal + deliveryAmount)} plus tax"
                       </div>
                     </div>
@@ -2320,165 +3002,185 @@ export default function AshleyDealCalculator() {
                   </div>
                 )}
 
-                <div className="section-title">Margin by Item</div>
-                {calculatedItems.filter(item => item.landingCost > 0).map((item, i) => (
-                  <div key={item.id} className="margin-item">
-                    <div className="margin-item-header">
-                      <span className="margin-item-name">{item.name || `Item ${i + 1}`}</span>
-                      {item.margin !== null && (
-                        <span 
-                          className="margin-badge"
-                          style={{ 
-                            background: item.margin >= 50 ? '#e8f5e9' : item.margin >= 47 ? '#fff3e0' : '#ffebee',
-                            color: getMarginColor(item.margin)
-                          }}
-                        >
-                          {item.margin.toFixed(1)}% margin
-                        </span>
-                      )}
-                    </div>
-                    {item.invoicePrice > 0 ? (
-                      <div style={{ fontSize: '12px', color: '#666', lineHeight: 1.6 }}>
-                        {noTaxPromo ? (
-                          <>
-                            Quote: {formatMoney(item.quotePrice)} • Invoice: {formatMoney(item.invoicePrice)}
-                          </>
+                <details className="result-section" open>
+                  <summary>
+                    Margin by Item
+                    <span className="summary-chevron">▼</span>
+                  </summary>
+                  <div style={{ marginTop: '8px' }}>
+                {calculatedItems.filter(item => item.landingProvided).map((item, i) => (
+                      <div key={item.id} className="margin-item">
+                        <div className="margin-item-header">
+                          <span className="margin-item-name">{item.name || `Item ${i + 1}`}</span>
+                          {item.margin !== null && (
+                            <span 
+                              className="margin-badge"
+                              style={{ 
+                                background: item.margin >= 50 ? colors.success.light : item.margin >= 47 ? colors.warning.light : colors.error.light,
+                                color: getMarginColor(item.margin),
+                                border: `1px solid ${getMarginColor(item.margin)}50`
+                              }}
+                            >
+                              {item.margin.toFixed(1)}% margin
+                            </span>
+                          )}
+                        </div>
+                        {item.invoicePrice > 0 ? (
+                          <div style={{ fontSize: '12px', color: colors.text.secondary, lineHeight: 1.6 }}>
+                            {noTaxPromo ? (
+                              <>
+                                Quote: {formatMoney(item.quotePrice)} • Invoice: {formatMoney(item.invoicePrice)}
+                              </>
+                            ) : (
+                              <>
+                                Sale: {formatMoney(item.invoicePrice)} (+ tax at register)
+                              </>
+                            )}
+                            <br/>
+                            Landing: {formatMoney(item.landingCost)} • 
+                            <strong style={{ color: getMarginColor(item.margin || 0) }}>
+                              {' '}Profit: {formatMoney(item.profitPerUnit)}/unit
+                            </strong>
+                          </div>
                         ) : (
-                          <>
-                            Sale: {formatMoney(item.invoicePrice)} (+ tax at register)
-                          </>
+                          <div style={{ fontSize: '12px', color: colors.text.secondary, lineHeight: 1.6 }}>
+                            Landing: {formatMoney(item.landingCost)} • <em>Tap a margin target below</em>
+                          </div>
                         )}
-                        <br/>
-                        Landing: {formatMoney(item.landingCost)} • 
-                        <strong style={{ color: getMarginColor(item.margin || 0) }}>
-                          {' '}Profit: {formatMoney(item.profitPerUnit)}/unit
-                        </strong>
+                        <div style={{ fontSize: '11px', color: colors.primary[400], marginTop: '8px', marginBottom: '4px', fontWeight: 600 }}>
+                          {item.selectedMargin 
+                            ? 'Tap again to restore original price:' 
+                            : (noTaxPromo ? 'Tap to set price (shows quote w/ tax):' : 'Tap to set sale price:')}
+                        </div>
+                        <div className="margin-prices">
+                          <div 
+                            className={`margin-price-box ${item.selectedMargin === 50 ? 'current' : ''}`}
+                            onClick={() => setItemToMargin(item.id, 50)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <div className="margin-price-label">50%</div>
+                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt50 * (1 + taxRate) : item.priceAt50)}</div>
+                          </div>
+                          <div 
+                            className={`margin-price-box ${item.selectedMargin === 49 ? 'current' : ''}`}
+                            onClick={() => setItemToMargin(item.id, 49)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <div className="margin-price-label">49%</div>
+                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt49 * (1 + taxRate) : item.priceAt49)}</div>
+                          </div>
+                          <div 
+                            className={`margin-price-box ${item.selectedMargin === 48 ? 'current' : ''}`}
+                            onClick={() => setItemToMargin(item.id, 48)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <div className="margin-price-label">48%</div>
+                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt48 * (1 + taxRate) : item.priceAt48)}</div>
+                          </div>
+                          <div 
+                            className={`margin-price-box ${item.selectedMargin === 47 ? 'current' : ''}`}
+                            onClick={() => setItemToMargin(item.id, 47)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <div className="margin-price-label">47%</div>
+                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt47 * (1 + taxRate) : item.priceAt47)}</div>
+                          </div>
+                        </div>
+                        {noTaxPromo && item.margin !== null && (
+                          <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', background: colors.warning.light, border: `1px solid ${colors.warning.main}40`, padding: '8px', borderRadius: '6px' }}>
+                            📝 <strong>Invoice:</strong> Write {formatMoney(item.invoicePrice)} for {item.margin.toFixed(0)}% margin → customer pays {formatMoney(item.quotePrice)}
+                          </div>
+                        )}
                       </div>
-                    ) : (
-                      <div style={{ fontSize: '12px', color: '#666', lineHeight: 1.6 }}>
-                        Landing: {formatMoney(item.landingCost)} • <em>Tap a margin target below</em>
-                      </div>
-                    )}
-                    <div style={{ fontSize: '11px', color: '#8b7355', marginTop: '8px', marginBottom: '4px', fontWeight: 600 }}>
-                      {item.selectedMargin 
-                        ? 'Tap again to restore original price:' 
-                        : (noTaxPromo ? 'Tap to set price (shows quote w/ tax):' : 'Tap to set sale price:')}
-                    </div>
-                    <div className="margin-prices">
-                      <div 
-                        className={`margin-price-box ${item.selectedMargin === 50 ? 'current' : ''}`}
-                        onClick={() => setItemToMargin(item.id, 50)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <div className="margin-price-label">50%</div>
-                        <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt50 * (1 + taxRate) : item.priceAt50)}</div>
-                      </div>
-                      <div 
-                        className={`margin-price-box ${item.selectedMargin === 49 ? 'current' : ''}`}
-                        onClick={() => setItemToMargin(item.id, 49)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <div className="margin-price-label">49%</div>
-                        <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt49 * (1 + taxRate) : item.priceAt49)}</div>
-                      </div>
-                      <div 
-                        className={`margin-price-box ${item.selectedMargin === 48 ? 'current' : ''}`}
-                        onClick={() => setItemToMargin(item.id, 48)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <div className="margin-price-label">48%</div>
-                        <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt48 * (1 + taxRate) : item.priceAt48)}</div>
-                      </div>
-                      <div 
-                        className={`margin-price-box ${item.selectedMargin === 47 ? 'current' : ''}`}
-                        onClick={() => setItemToMargin(item.id, 47)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <div className="margin-price-label">47%</div>
-                        <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt47 * (1 + taxRate) : item.priceAt47)}</div>
-                      </div>
-                    </div>
-                    {noTaxPromo && item.margin !== null && (
-                      <div style={{ fontSize: '11px', color: '#666', marginTop: '8px', background: '#fff8e1', padding: '8px', borderRadius: '6px' }}>
-                        📝 <strong>Invoice:</strong> Write {formatMoney(item.invoicePrice)} for {item.margin.toFixed(0)}% margin → customer pays {formatMoney(item.quotePrice)}
-                      </div>
-                    )}
+                    ))}
                   </div>
-                ))}
+                </details>
 
                 {/* Summary Table */}
-                <div className="section-title">📊 Deal at a Glance</div>
-                <div style={{ overflowX: 'auto', margin: '0 -8px' }}>
-                  <table style={{ 
-                    width: '100%', 
-                    borderCollapse: 'collapse', 
-                    fontSize: '12px',
-                    background: 'white',
-                    borderRadius: '8px',
-                    overflow: 'hidden',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
-                  }}>
-                    <thead>
-                      <tr style={{ background: '#f5f2ef' }}>
-                        <th style={{ padding: '8px 6px', textAlign: 'left', fontWeight: 600, color: '#5c4a3a', borderBottom: '2px solid #e0d8cf' }}>Item</th>
-                        <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: '#5c4a3a', borderBottom: '2px solid #e0d8cf' }}>Landing</th>
-                        <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: '#5c4a3a', borderBottom: '2px solid #e0d8cf' }}>Invoice</th>
-                        {noTaxPromo && <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: '#5c4a3a', borderBottom: '2px solid #e0d8cf' }}>Quote</th>}
-                        <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: '#5c4a3a', borderBottom: '2px solid #e0d8cf' }}>Profit</th>
-                        <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: '#5c4a3a', borderBottom: '2px solid #e0d8cf' }}>Margin</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {calculatedItems.filter(item => item.landingCost > 0).map((item, i) => (
-                        <tr key={item.id} style={{ borderBottom: '1px solid #f0ebe5' }}>
-                          <td style={{ padding: '8px 6px', color: '#333' }}>{item.name || `Item ${i + 1}`}</td>
-                          <td style={{ padding: '8px 6px', textAlign: 'right', color: '#666' }}>{formatMoney(item.landingCost)}</td>
-                          <td style={{ padding: '8px 6px', textAlign: 'right', color: '#333', fontWeight: 500 }}>{item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '—'}</td>
-                          {noTaxPromo && <td style={{ padding: '8px 6px', textAlign: 'right', color: '#1565c0', fontWeight: 500 }}>{item.quotePrice > 0 ? formatMoney(item.quotePrice) : '—'}</td>}
-                          <td style={{ padding: '8px 6px', textAlign: 'right', color: '#2e7d32', fontWeight: 500 }}>{item.profitPerUnit !== null ? formatMoney(item.profitPerUnit) : '—'}</td>
-                          <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: getMarginColor(item.margin || 0) }}>
-                            {item.margin !== null ? `${item.margin.toFixed(0)}%` : '—'}
+                <details className="result-section">
+                  <summary>
+                    Deal at a Glance
+                    <span className="summary-chevron">▼</span>
+                  </summary>
+                  <div style={{ overflowX: 'auto', margin: '8px -8px 0' }}>
+                    <table style={{ 
+                      width: '100%', 
+                      borderCollapse: 'collapse', 
+                      fontSize: '12px',
+                      background: colors.primary[50],
+                      borderRadius: '8px',
+                      overflow: 'hidden',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                    }}>
+                      <thead>
+                        <tr style={{ background: colors.primary[50] }}>
+                          <th style={{ padding: '8px 6px', textAlign: 'left', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Item</th>
+                          <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Landing</th>
+                          <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Invoice</th>
+                          {noTaxPromo && <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Quote</th>}
+                          <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Profit</th>
+                          <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Margin</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                      {calculatedItems.filter(item => item.landingProvided).map((item, i) => (
+                          <tr key={item.id} style={{ borderBottom: `1px solid ${colors.primary[100]}` }}>
+                            <td style={{ padding: '8px 6px', color: colors.text.primary }}>{item.name || `Item ${i + 1}`}</td>
+                            <td style={{ padding: '8px 6px', textAlign: 'right', color: colors.text.secondary }}>{formatMoney(item.landingCost)}</td>
+                            <td style={{ padding: '8px 6px', textAlign: 'right', color: colors.text.primary, fontWeight: 500 }}>{item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '—'}</td>
+                            {noTaxPromo && <td style={{ padding: '8px 6px', textAlign: 'right', color: colors.info.main, fontWeight: 500 }}>{item.quotePrice > 0 ? formatMoney(item.quotePrice) : '—'}</td>}
+                            <td style={{ padding: '8px 6px', textAlign: 'right', color: colors.success.main, fontWeight: 500 }}>{item.profitPerUnit !== null ? formatMoney(item.profitPerUnit) : '—'}</td>
+                            <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: getMarginColor(item.margin || 0) }}>
+                              {item.margin !== null ? `${item.margin.toFixed(0)}%` : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                        {/* Totals row */}
+                        <tr style={{ background: colors.primary[50], fontWeight: 600 }}>
+                          <td style={{ padding: '10px 6px', color: colors.text.primary }}>TOTAL</td>
+                          <td style={{ padding: '10px 6px', textAlign: 'right', color: colors.text.secondary }}>{formatMoney(totalLandingCost)}</td>
+                          <td style={{ padding: '10px 6px', textAlign: 'right', color: colors.text.primary }}>{subtotal > 0 ? formatMoney(subtotal) : '—'}</td>
+                          {noTaxPromo && <td style={{ padding: '10px 6px', textAlign: 'right', color: colors.info.main }}>{subtotal > 0 ? formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0)) : '—'}</td>}
+                          <td style={{ padding: '10px 6px', textAlign: 'right', color: colors.success.main }}>{totalProfit > 0 ? formatMoney(totalProfit) : '—'}</td>
+                          <td style={{ padding: '10px 6px', textAlign: 'right', color: getMarginColor(overallMargin || 0) }}>
+                            {overallMargin !== null ? `${overallMargin.toFixed(1)}%` : '—'}
                           </td>
                         </tr>
-                      ))}
-                      {/* Totals row */}
-                      <tr style={{ background: '#f5f2ef', fontWeight: 600 }}>
-                        <td style={{ padding: '10px 6px', color: '#5c4a3a' }}>TOTAL</td>
-                        <td style={{ padding: '10px 6px', textAlign: 'right', color: '#666' }}>{formatMoney(totalLandingCost)}</td>
-                        <td style={{ padding: '10px 6px', textAlign: 'right', color: '#333' }}>{subtotal > 0 ? formatMoney(subtotal) : '—'}</td>
-                        {noTaxPromo && <td style={{ padding: '10px 6px', textAlign: 'right', color: '#1565c0' }}>{subtotal > 0 ? formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0)) : '—'}</td>}
-                        <td style={{ padding: '10px 6px', textAlign: 'right', color: '#2e7d32' }}>{totalProfit > 0 ? formatMoney(totalProfit) : '—'}</td>
-                        <td style={{ padding: '10px 6px', textAlign: 'right', color: getMarginColor(overallMargin || 0) }}>
-                          {overallMargin !== null ? `${overallMargin.toFixed(1)}%` : '—'}
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="section-title">Deal Summary</div>
-                <div className="breakdown-row">
-                  <span className="breakdown-label">Invoice Total</span>
-                  <span className="breakdown-value">{subtotal > 0 ? formatMoney(subtotal) : '—'}</span>
-                </div>
-                <div className="breakdown-row">
-                  <span className="breakdown-label">Total Landing Cost</span>
-                  <span className="breakdown-value">{formatMoney(totalLandingCost)}</span>
-                </div>
-                <div className="breakdown-row">
-                  <span className="breakdown-label">Total Profit</span>
-                  <span className="breakdown-value" style={{ color: '#2e7d32' }}>{totalProfit > 0 ? formatMoney(totalProfit) : '—'}</span>
-                </div>
-                {deliveryAmount > 0 && (
-                  <div className="breakdown-row">
-                    <span className="breakdown-label">Delivery + Tax</span>
-                    <span className="breakdown-value">{formatMoney(deliveryAmount + deliveryTax)}</span>
+                      </tbody>
+                    </table>
                   </div>
-                )}
+                </details>
+
+                <details className="result-section">
+                  <summary>
+                    Deal Summary
+                    <span className="summary-chevron">▼</span>
+                  </summary>
+                  <div style={{ marginTop: '8px' }}>
+                    <div className="breakdown-row">
+                      <span className="breakdown-label">Invoice Total</span>
+                      <span className="breakdown-value">{subtotal > 0 ? formatMoney(subtotal) : '—'}</span>
+                    </div>
+                    <div className="breakdown-row">
+                      <span className="breakdown-label">Total Landing Cost</span>
+                      <span className="breakdown-value">{formatMoney(totalLandingCost)}</span>
+                    </div>
+                    <div className="breakdown-row">
+                      <span className="breakdown-label">Total Profit</span>
+                      <span className="breakdown-value" style={{ color: '#2e7d32' }}>{totalProfit > 0 ? formatMoney(totalProfit) : '—'}</span>
+                    </div>
+                    {deliveryAmount > 0 && (
+                      <div className="breakdown-row">
+                        <span className="breakdown-label">Delivery + Tax</span>
+                        <span className="breakdown-value">{formatMoney(deliveryAmount + deliveryTax)}</span>
+                      </div>
+                    )}
+                  </div>
+                </details>
                 {noTaxPromo && subtotal > 0 && (
-                  <div style={{ background: '#e8f5e9', borderRadius: '8px', padding: '12px', marginTop: '12px' }}>
-                    <div style={{ fontSize: '12px', color: '#2e7d32', fontWeight: 600, marginBottom: '4px' }}>💬 Quote to Customer:</div>
-                    <div style={{ fontSize: '15px', color: '#333', fontWeight: 600 }}>
+                  <div style={{ background: colors.success.light, borderRadius: '8px', padding: '12px', marginTop: '12px', border: `1px solid ${colors.success.main}40` }}>
+                    <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>💬 Quote to Customer:</div>
+                    <div style={{ fontSize: '15px', color: colors.text.primary, fontWeight: 600 }}>
                       {formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0) + deliveryAmount + deliveryTax)} total
                     </div>
                   </div>
@@ -2487,7 +3189,7 @@ export default function AshleyDealCalculator() {
                 {/* Copy-Paste Text Block */}
                 <CopyBlock
                   title="📋 Copy for Manager"
-                  content={`MARGIN CHECK\n${calculatedItems.filter(i => i.landingCost > 0).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)} → Invoice ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '—'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '—'}`).join('\n')}\n\nTotal Landing: ${formatMoney(totalLandingCost)}\nInvoice Total: ${subtotal > 0 ? formatMoney(subtotal) : '—'}\nProfit: ${totalProfit > 0 ? formatMoney(totalProfit) : '—'}\nMARGIN: ${overallMargin !== null ? overallMargin.toFixed(1) + '%' : '—'} ${overallMargin >= 50 ? '✓' : overallMargin >= 47 ? '⚠️' : '✗'}`}
+                  content={`MARGIN CHECK\n${calculatedItems.filter(i => i.landingProvided).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)} → Invoice ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '—'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '—'}`).join('\n')}\n\nTotal Landing: ${formatMoney(totalLandingCost)}\nInvoice Total: ${subtotal > 0 ? formatMoney(subtotal) : '—'}\nProfit: ${totalProfit > 0 ? formatMoney(totalProfit) : '—'}\nMARGIN: ${overallMargin !== null ? overallMargin.toFixed(1) + '%' : '—'} ${overallMargin >= 50 ? '✓' : overallMargin >= 47 ? '⚠️' : '✗'}`}
                 />
               </>
             )}
@@ -2499,10 +3201,10 @@ export default function AshleyDealCalculator() {
                   <>
                     <div className="big-total" style={{
                       background: otdMargin >= 50 
-                        ? 'linear-gradient(135deg, #2e7d32 0%, #1b5e20 100%)'
+                        ? `linear-gradient(135deg, ${colors.success.main} 0%, ${colors.success.dark} 100%)`
                         : otdMargin >= 47
-                        ? 'linear-gradient(135deg, #f57c00 0%, #e65100 100%)'
-                        : 'linear-gradient(135deg, #c62828 0%, #b71c1c 100%)'
+                        ? `linear-gradient(135deg, ${colors.warning.main} 0%, ${colors.warning.dark} 100%)`
+                        : `linear-gradient(135deg, ${colors.error.main} 0%, ${colors.error.dark} 100%)`
                     }}>
                       <div className="big-total-label">
                         {otdMargin >= 50 ? '✓ APPROVED' : otdMargin >= 47 ? '⚠️ MANAGER OK?' : '✗ TOO LOW'}
@@ -2511,81 +3213,102 @@ export default function AshleyDealCalculator() {
                       <div className="big-total-sub">Customer's OTD offer</div>
                     </div>
 
-                    <div className="section-title">Deal Breakdown</div>
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">Customer Offer (OTD)</span>
-                      <span className="breakdown-value">{formatMoney(otdAmount)}</span>
-                    </div>
-                    {deliveryAmount > 0 && (
-                      <div className="breakdown-row">
-                        <span className="breakdown-label">− Delivery + Tax</span>
-                        <span className="breakdown-value">({formatMoney(otdDeliveryWithTax)})</span>
+                    <details className="result-section" open>
+                      <summary>
+                        Deal Breakdown
+                        <span className="summary-chevron">▼</span>
+                      </summary>
+                      <div style={{ marginTop: '8px' }}>
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">Customer Offer (OTD)</span>
+                          <span className="breakdown-value">{formatMoney(otdAmount)}</span>
+                        </div>
+                        {deliveryAmount > 0 && (
+                          <div className="breakdown-row">
+                            <span className="breakdown-label">− Delivery + Tax</span>
+                            <span className="breakdown-value">({formatMoney(otdDeliveryWithTax)})</span>
+                          </div>
+                        )}
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">= Merch w/ Tax</span>
+                          <span className="breakdown-value">{formatMoney(otdMerchandiseWithTax)}</span>
+                        </div>
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">− Tax ({TAX_RATE}%)</span>
+                          <span className="breakdown-value">({formatMoney(otdMerchandiseTax)})</span>
+                        </div>
+                        <div className="breakdown-row" style={{ background: colors.primary[50], margin: '0 -20px', padding: '10px 20px' }}>
+                          <span className="breakdown-label" style={{ fontWeight: 600 }}>= Sale Price (Invoice)</span>
+                          <span className="breakdown-value" style={{ fontSize: '16px' }}>{formatMoney(otdSalePrice)}</span>
+                        </div>
                       </div>
-                    )}
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">= Merch w/ Tax</span>
-                      <span className="breakdown-value">{formatMoney(otdMerchandiseWithTax)}</span>
-                    </div>
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">− Tax ({TAX_RATE}%)</span>
-                      <span className="breakdown-value">({formatMoney(otdMerchandiseTax)})</span>
-                    </div>
-                    <div className="breakdown-row" style={{ background: '#f5f2ef', margin: '0 -20px', padding: '10px 20px' }}>
-                      <span className="breakdown-label" style={{ fontWeight: 600 }}>= Sale Price (Invoice)</span>
-                      <span className="breakdown-value" style={{ fontSize: '16px' }}>{formatMoney(otdSalePrice)}</span>
-                    </div>
+                    </details>
 
-                    <div className="section-title">Margin Analysis</div>
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">Total Landing Cost</span>
-                      <span className="breakdown-value">{formatMoney(totalLandingCost)}</span>
-                    </div>
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">Sale Price</span>
-                      <span className="breakdown-value">{formatMoney(otdSalePrice)}</span>
-                    </div>
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">Profit</span>
-                      <span className="breakdown-value" style={{ color: otdProfit >= 0 ? '#2e7d32' : '#c62828' }}>
-                        {formatMoney(otdProfit)}
-                      </span>
-                    </div>
-                    <div className="breakdown-row" style={{ background: '#f5f2ef', margin: '0 -20px', padding: '10px 20px' }}>
-                      <span className="breakdown-label" style={{ fontWeight: 600, fontSize: '14px' }}>MARGIN</span>
-                      <span 
-                        className="breakdown-value" 
-                        style={{ 
-                          fontSize: '20px',
-                          color: getMarginColor(otdMargin)
-                        }}
-                      >
-                        {otdMargin?.toFixed(1)}%
-                      </span>
-                    </div>
+                    <details className="result-section">
+                      <summary>
+                        Margin Analysis
+                        <span className="summary-chevron">▼</span>
+                      </summary>
+                      <div style={{ marginTop: '8px' }}>
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">Total Landing Cost</span>
+                          <span className="breakdown-value">{formatMoney(totalLandingCost)}</span>
+                        </div>
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">Sale Price</span>
+                          <span className="breakdown-value">{formatMoney(otdSalePrice)}</span>
+                        </div>
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">Profit</span>
+                          <span className="breakdown-value" style={{ color: otdProfit >= 0 ? colors.success.main : colors.error.main }}>
+                            {formatMoney(otdProfit)}
+                          </span>
+                        </div>
+                        <div className="breakdown-row" style={{ background: colors.primary[50], margin: '0 -20px', padding: '10px 20px' }}>
+                          <span className="breakdown-label" style={{ fontWeight: 600, fontSize: '14px' }}>MARGIN</span>
+                          <span 
+                            className="breakdown-value" 
+                            style={{ 
+                              fontSize: '20px',
+                              color: getMarginColor(otdMargin)
+                            }}
+                          >
+                            {otdMargin?.toFixed(1)}%
+                          </span>
+                        </div>
+                      </div>
+                    </details>
 
                     {/* OTD Price Targets */}
-                    <div className="section-title">Counter-Offer Prices (OTD)</div>
-                    <div style={{ fontSize: '11px', color: '#666', marginBottom: '8px' }}>
-                      If you need to counter, here's what OTD price hits each margin:
-                    </div>
-                    <div className="margin-prices">
-                      <div className={`margin-price-box ${otdMargin >= 49.5 && otdMargin < 50.5 ? 'current' : ''}`}>
-                        <div className="margin-price-label">50%</div>
-                        <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 50) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
+                    <details className="result-section">
+                      <summary>
+                        Counter-Offer Prices (OTD)
+                        <span className="summary-chevron">▼</span>
+                      </summary>
+                      <div style={{ marginTop: '8px' }}>
+                        <div style={{ fontSize: '11px', color: colors.text.secondary, marginBottom: '8px' }}>
+                          If you need to counter, here's what OTD price hits each margin:
+                        </div>
+                        <div className="margin-prices">
+                          <div className={`margin-price-box ${otdMargin >= 49.5 && otdMargin < 50.5 ? 'current' : ''}`}>
+                            <div className="margin-price-label">50%</div>
+                            <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 50) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
+                          </div>
+                          <div className={`margin-price-box ${otdMargin >= 48.5 && otdMargin < 49.5 ? 'current' : ''}`}>
+                            <div className="margin-price-label">49%</div>
+                            <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 49) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
+                          </div>
+                          <div className={`margin-price-box ${otdMargin >= 47.5 && otdMargin < 48.5 ? 'current' : ''}`}>
+                            <div className="margin-price-label">48%</div>
+                            <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 48) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
+                          </div>
+                          <div className={`margin-price-box ${otdMargin >= 46.5 && otdMargin < 47.5 ? 'current' : ''}`}>
+                            <div className="margin-price-label">47%</div>
+                            <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
+                          </div>
+                        </div>
                       </div>
-                      <div className={`margin-price-box ${otdMargin >= 48.5 && otdMargin < 49.5 ? 'current' : ''}`}>
-                        <div className="margin-price-label">49%</div>
-                        <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 49) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
-                      </div>
-                      <div className={`margin-price-box ${otdMargin >= 47.5 && otdMargin < 48.5 ? 'current' : ''}`}>
-                        <div className="margin-price-label">48%</div>
-                        <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 48) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
-                      </div>
-                      <div className={`margin-price-box ${otdMargin >= 46.5 && otdMargin < 47.5 ? 'current' : ''}`}>
-                        <div className="margin-price-label">47%</div>
-                        <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
-                      </div>
-                    </div>
+                    </details>
                   </>
                 )}
 
@@ -2599,9 +3322,9 @@ export default function AshleyDealCalculator() {
                 )}
 
                 {otdMargin !== null && otdMargin >= 47 && (
-                  <div style={{ background: '#fff8e1', borderRadius: '8px', padding: '12px', marginTop: '12px' }}>
-                    <div style={{ fontSize: '12px', color: '#f57c00', fontWeight: 600, marginBottom: '4px' }}>📝 For Invoice:</div>
-                    <div style={{ fontSize: '12px', color: '#666' }}>
+                  <div style={{ background: colors.warning.light, borderRadius: '8px', padding: '12px', marginTop: '12px', border: `1px solid ${colors.warning.main}40` }}>
+                    <div style={{ fontSize: '12px', color: colors.warning.main, fontWeight: 600, marginBottom: '4px' }}>📝 For Invoice:</div>
+                    <div style={{ fontSize: '12px', color: colors.text.secondary }}>
                       Write <strong>{formatMoney(otdSalePrice)}</strong> merchandise{deliveryAmount > 0 && <> + <strong>{formatMoney(deliveryAmount)}</strong> delivery</>}
                       <br/>
                       Tax auto-calculates → Total = {formatMoney(otdAmount)} ✓
@@ -2612,7 +3335,7 @@ export default function AshleyDealCalculator() {
                 {/* Copy-Paste Text Block */}
                 <CopyBlock
                   title="📋 Copy for Manager"
-                  content={`OTD REQUEST\n${calculatedItems.filter(i => i.landingCost > 0).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)}`).join('\n')}\nTotal Landing: ${formatMoney(totalLandingCost)}\n\nCustomer Offer: ${formatMoney(otdAmount)} OTD${deliveryAmount > 0 ? `\nDelivery: ${formatMoney(deliveryAmount)} + ${formatMoney(deliveryTax)} tax` : ''}\nSale Price: ${formatMoney(otdSalePrice)}\nProfit: ${formatMoney(otdProfit)}\nMARGIN: ${otdMargin?.toFixed(1)}% ${otdMargin >= 50 ? '✓' : otdMargin >= 47 ? '⚠️' : '✗'}${otdMargin < 47 ? `\n\n⚠️ BELOW 47% - Min OTD: ${formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}` : ''}`}
+                  content={`OTD REQUEST\n${calculatedItems.filter(i => i.landingProvided).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)}`).join('\n')}\nTotal Landing: ${formatMoney(totalLandingCost)}\n\nCustomer Offer: ${formatMoney(otdAmount)} OTD${deliveryAmount > 0 ? `\nDelivery: ${formatMoney(deliveryAmount)} + ${formatMoney(deliveryTax)} tax` : ''}\nSale Price: ${formatMoney(otdSalePrice)}\nProfit: ${formatMoney(otdProfit)}\nMARGIN: ${otdMargin?.toFixed(1)}% ${otdMargin >= 50 ? '✓' : otdMargin >= 47 ? '⚠️' : '✗'}${otdMargin < 47 ? `\n\n⚠️ BELOW 47% - Min OTD: ${formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}` : ''}`}
                 />
               </>
             )}
@@ -2624,6 +3347,7 @@ export default function AshleyDealCalculator() {
               <button className="result-btn primary" onClick={resetForm}>
                 Edit Deal
               </button>
+            </div>
             </div>
           </div>
         </div>
@@ -2763,7 +3487,7 @@ export default function AshleyDealCalculator() {
         <div className="help-overlay" onClick={() => setShowConfirmReset(false)}>
           <div className="help-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '360px', textAlign: 'center' }}>
             <h2 style={{ marginBottom: '12px' }}>⚠️ Start Over?</h2>
-            <p style={{ fontSize: '14px', color: '#555', marginBottom: '20px' }}>
+            <p style={{ fontSize: '14px', color: colors.text.secondary, marginBottom: '20px' }}>
               Are you sure you want to start over? This will clear all items and reset the calculator.
             </p>
             <div style={{ display: 'flex', gap: '12px' }}>
@@ -2772,9 +3496,9 @@ export default function AshleyDealCalculator() {
                 style={{
                   flex: 1,
                   padding: '14px',
-                  background: '#f5f2ef',
-                  color: '#666',
-                  border: 'none',
+                  background: colors.primary[50],
+                  color: colors.text.secondary,
+                  border: `1px solid ${colors.primary[200]}`,
                   borderRadius: '10px',
                   fontSize: '15px',
                   fontWeight: 600,
@@ -2788,7 +3512,7 @@ export default function AshleyDealCalculator() {
                 style={{
                   flex: 1,
                   padding: '14px',
-                  background: '#c62828',
+                  background: colors.error.main,
                   color: 'white',
                   border: 'none',
                   borderRadius: '10px',

@@ -26,7 +26,7 @@ export default defineConfig({
   // Shared settings for all projects
   use: {
     // Base URL for navigation
-    baseURL: 'http://localhost:5173',
+    baseURL: 'http://127.0.0.1:5173',
 
     // Collect trace on first retry
     trace: 'on-first-retry',
@@ -46,8 +46,29 @@ export default defineConfig({
     },
 
     {
-      name: 'mobile',
+      name: 'iphone-portrait',
       use: { ...devices['iPhone 12'] },
+    },
+
+    {
+      name: 'iphone-landscape',
+      use: {
+        ...devices['iPhone 12'],
+        viewport: { width: 844, height: 390 },
+      },
+    },
+
+    {
+      name: 'android-portrait',
+      use: { ...devices['Pixel 5'] },
+    },
+
+    {
+      name: 'android-landscape',
+      use: {
+        ...devices['Pixel 5'],
+        viewport: { width: 851, height: 393 },
+      },
     },
 
     // Uncomment for additional browser testing
@@ -64,8 +85,8 @@ export default defineConfig({
 
   // Run dev server before tests
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5173',
+    command: 'npm run dev -- --host 127.0.0.1 --port 5173',
+    url: 'http://127.0.0.1:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },
