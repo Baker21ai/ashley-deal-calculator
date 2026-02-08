@@ -29,3 +29,7 @@ yarn-error.log*
 
 # Local Netlify folder
 .netlify/
+
+# Test artifacts
+playwright-report/
+test-results/

@@ -93,26 +93,26 @@ export default function AshleyDealCalculator() {
   const helperSteps = [
     {
       id: 'mode',
-      title: 'Step 1: Choose Your Mode',
-      description: 'Pick what you want to do. Quick Quote for customer totals, Margin Check to verify profitability, or OTD Price to evaluate customer offers.',
+      title: 'Step 1: Pick a Mode',
+      description: 'Quote = total. Margin = profit check. OTD = customer offer.',
       highlight: 'mode-tabs',
     },
     {
       id: 'settings',
       title: 'Step 2: Set Deal Options',
-      description: 'Select the sale percentage (usually 30%), toggle No-Tax Promo on/off, and choose delivery amount.',
+      description: 'Pick sale %, No-Tax, and delivery.',
       highlight: 'deal-settings',
     },
     {
       id: 'items',
-      title: 'Step 3: Add Your Items',
-      description: 'Tap to select item type, then tap the price fields to enter amounts using the dial pad. Add more items if needed.',
+      title: 'Step 3: Add Items',
+      description: 'Pick item type. Enter price and landing cost.',
       highlight: 'items-section',
     },
     {
       id: 'calculate',
-      title: 'Step 4: Calculate!',
-      description: 'Hit the button at the bottom to see your results. You can then copy the summary to share with your manager.',
+      title: 'Step 4: Calculate',
+      description: 'Tap the button to see results.',
       highlight: 'calc-button',
     },
   ];
@@ -544,7 +544,8 @@ export default function AshleyDealCalculator() {
             lineHeight: 1.6,
             whiteSpace: 'pre-wrap',
             cursor: 'pointer',
-            position: 'relative'
+            position: 'relative',
+            color: '#333'
           }}
         >
           {content}
@@ -576,6 +577,47 @@ export default function AshleyDealCalculator() {
   // State for header menu
   const [menuOpen, setMenuOpen] = useState(false);
 
+  const currentGuide = (() => {
+    if (mode === 'quote') {
+      return {
+        title: 'Quick Start (Quote)',
+        steps: [
+          'Enter tag or sale prices.',
+          'Pick delivery.',
+          'Tap Calculate.',
+        ],
+        example: 'Example: $1000 tag + $135 delivery = total shown.',
+        mistake: 'Do not enter landing cost in this mode.',
+      };
+    }
+    if (mode === 'margin') {
+      return {
+        title: 'Quick Start (Margin)',
+        steps: [
+          'Enter sale price.',
+          'Enter landing cost.',
+          'Check the color.',
+        ],
+        example: 'Example: Landing $500 → 50% target is $1000.',
+        mistake: noTaxPromo
+          ? 'No-Tax ON: enter customer price with tax.'
+          : 'Price here is before tax.',
+        note: 'Below 47% = stop and call manager.',
+      };
+    }
+    return {
+      title: 'Quick Start (OTD)',
+      steps: [
+        'Enter landing cost.',
+        'Enter customer offer.',
+        'See if it is OK.',
+      ],
+      example: 'Example: Customer says $1200 OTD → app shows margin.',
+      mistake: 'OTD means total with tax and delivery.',
+      note: 'Below 47% = stop and call manager.',
+    };
+  })();
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -583,6 +625,7 @@ export default function AshleyDealCalculator() {
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       padding: '16px',
       paddingBottom: '100px',
+      color: '#333',
     }}>
       <style>{`
         * { box-sizing: border-box; }
@@ -695,6 +738,70 @@ export default function AshleyDealCalculator() {
           color: white;
         }
         .mode-tab:not(.active):hover { background: #f5f2ef; }
+
+        .mode-hint {
+          margin: -6px 0 12px;
+          font-size: 12px;
+          color: #666;
+          text-align: center;
+        }
+        .mini-guide {
+          background: #fff8e1;
+          border-radius: 12px;
+          padding: 12px 14px;
+          margin-bottom: 14px;
+          border: 1px solid #f1e4b9;
+        }
+        .mini-guide-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: #8b7355;
+          margin-bottom: 6px;
+        }
+        .mini-guide-row {
+          font-size: 12px;
+          color: #555;
+          padding: 2px 0;
+        }
+        .mini-guide-example {
+          font-size: 12px;
+          color: #555;
+          margin-top: 6px;
+        }
+        .mini-guide-mistake {
+          font-size: 12px;
+          color: #8b7355;
+          margin-top: 6px;
+          font-weight: 600;
+        }
+        .mini-guide-note {
+          font-size: 11px;
+          color: #a65f00;
+          margin-top: 6px;
+          font-weight: 700;
+        }
+        .section-hint {
+          font-size: 11px;
+          color: #777;
+          margin: -4px 0 8px;
+        }
+        .setting-hint {
+          font-size: 11px;
+          color: #777;
+          margin: 4px 0 8px;
+        }
+        .input-hint {
+          font-size: 11px;
+          color: #777;
+          margin: 4px 0 6px;
+        }
+        .item-hints-row {
+          font-size: 11px;
+          color: #777;
+          margin: 4px 0 8px;
+          display: flex;
+          justify-content: space-between;
+        }
 
         .card {
           background: white;
@@ -828,7 +935,7 @@ export default function AshleyDealCalculator() {
         }
         .input-label {
           font-size: 11px;
-          color: #888;
+          color: #666;
           margin-bottom: 4px;
           display: block;
         }
@@ -1011,8 +1118,8 @@ export default function AshleyDealCalculator() {
         .margin-price-box.current .margin-price-value {
           color: white;
         }
-        .margin-price-label { font-size: 10px; color: #888; }
-        .margin-price-value { font-size: 13px; font-weight: 600; margin-top: 2px; }
+        .margin-price-label { font-size: 10px; color: #666; }
+        .margin-price-value { font-size: 13px; font-weight: 600; margin-top: 2px; color: #333; }
         
         .result-buttons {
           display: flex;
@@ -1089,6 +1196,24 @@ export default function AshleyDealCalculator() {
           color: #555;
           line-height: 1.6;
         }
+        .faq-item {
+          margin-top: 8px;
+        }
+        .faq-q {
+          font-size: 13px;
+          font-weight: 600;
+          color: #5c4a3a;
+        }
+        .faq-a {
+          font-size: 12px;
+          color: #555;
+          margin-top: 2px;
+        }
+        .glossary-item {
+          font-size: 12px;
+          color: #555;
+          margin-top: 6px;
+        }
         .help-close {
           width: 100%;
           padding: 14px;
@@ -1110,20 +1235,6 @@ export default function AshleyDealCalculator() {
         }
         .quick-ref-title { font-size: 12px; font-weight: 600; color: #8b7355; margin-bottom: 6px; }
         .quick-ref-item { font-size: 12px; color: #666; padding: 2px 0; }
-        
-        .copy-block {
-          background: #f8f6f3;
-          border: 1px solid #e0d8cf;
-          border-radius: 8px;
-          padding: 12px;
-          font-family: monospace;
-          font-size: 12px;
-          line-height: 1.6;
-          white-space: pre-wrap;
-          color: #333;
-          cursor: pointer;
-        }
-        .copy-block:active { background: #f0ebe5; }
 
         /* Wheel button */
         .wheel-btn {
@@ -1518,6 +1629,7 @@ export default function AshleyDealCalculator() {
           border-radius: 8px;
           font-size: 14px;
           text-align: center;
+          color: #333;
         }
         .input-qty-compact:focus {
           outline: none;
@@ -1550,7 +1662,7 @@ export default function AshleyDealCalculator() {
         }
         .input-label-mini {
           font-size: 10px;
-          color: #888;
+          color: #666;
           margin-bottom: 4px;
           display: block;
           text-transform: uppercase;
@@ -1567,6 +1679,7 @@ export default function AshleyDealCalculator() {
           border-radius: 8px;
           font-size: 15px;
           min-height: 42px;
+          color: #333;
         }
         .input-compact:focus {
           outline: none;
@@ -1751,6 +1864,28 @@ export default function AshleyDealCalculator() {
           </button>
         </div>
 
+        <div className="mode-hint">
+          Pick one: Quote = total. Margin = profit check. OTD = customer offer.
+        </div>
+
+        <div className="mini-guide">
+          <div className="mini-guide-title">{currentGuide.title}</div>
+          {currentGuide.steps.map((step, index) => (
+            <div key={`${currentGuide.title}-${index}`} className="mini-guide-row">
+              {index + 1}. {step}
+            </div>
+          ))}
+          {currentGuide.example && (
+            <div className="mini-guide-example">Example: {currentGuide.example}</div>
+          )}
+          {currentGuide.mistake && (
+            <div className="mini-guide-mistake">Common mistake: {currentGuide.mistake}</div>
+          )}
+          {currentGuide.note && (
+            <div className="mini-guide-note">{currentGuide.note}</div>
+          )}
+        </div>
+
         {/* Settings Accordion */}
         <div className="settings-accordion">
           <div
@@ -1772,6 +1907,7 @@ export default function AshleyDealCalculator() {
               {mode !== 'otd' && (
                 <div className="setting-compact">
                   <label className="setting-label">Sale %</label>
+                  <div className="setting-hint">Most deals use 30%.</div>
                   <div className="pill-group-compact">
                     {[30, 35, 40].map(pct => (
                       <div
@@ -1790,6 +1926,7 @@ export default function AshleyDealCalculator() {
               {(mode === 'quote' || mode === 'margin') && (
                 <div className="setting-compact">
                   <label className="setting-label">Price Type</label>
+                  <div className="setting-hint">Sale = after discount. Retail = tag price.</div>
                   <div className="pill-group-compact">
                     <div
                       className={`pill-compact ${priceType === 'sale' ? 'selected' : ''}`}
@@ -1819,11 +1956,13 @@ export default function AshleyDealCalculator() {
                     {noTaxPromo ? 'ON' : 'OFF'}
                   </span>
                 </div>
+                <div className="setting-hint">Same total. Just how you say it.</div>
               </div>
 
               {/* Delivery */}
               <div className="setting-compact">
                 <label className="setting-label">Delivery</label>
+                <div className="setting-hint">Delivery is always taxed.</div>
                 <div className="pill-group-compact">
                   <div
                     className={`pill-compact ${delivery === '0' ? 'selected' : ''}`}
@@ -1870,7 +2009,7 @@ export default function AshleyDealCalculator() {
               </button>
             </div>
             <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
-              Enter the total out-the-door price the customer wants to pay
+              Enter customer total offer (tax + delivery included)
             </div>
           </div>
         )}
@@ -1879,6 +2018,11 @@ export default function AshleyDealCalculator() {
         <div className="card" style={{ padding: 14 }}>
           <div className="card-title" style={{ marginBottom: 10 }}>
             {mode === 'otd' ? 'Items (Landing Cost Only)' : 'Items'}
+          </div>
+          <div className="section-hint">
+            {mode === 'otd'
+              ? 'Only landing cost is needed in OTD mode.'
+              : 'Add items and prices. Name is optional.'}
           </div>
 
           {items.map((item, index) => (
@@ -1945,6 +2089,11 @@ export default function AshleyDealCalculator() {
                 )}
               </div>
 
+              <div className="item-hints-row">
+                <span>Name optional.</span>
+                <span>Qty = how many.</span>
+              </div>
+
               {/* Show custom name if custom is selected */}
               {showCustomInput[item.id] && (
                 <button
@@ -1974,6 +2123,13 @@ export default function AshleyDealCalculator() {
                     <label className="input-label-mini">
                       {noTaxPromo ? 'Price (w/tax)' : 'Price'}
                     </label>
+                    <div className="input-hint">
+                      {noTaxPromo
+                        ? 'Enter customer price with tax.'
+                        : priceType === 'tag'
+                          ? 'Enter tag price from the label.'
+                          : 'Enter sale price after discount.'}
+                    </div>
                     <div className="input-with-wheel">
                       <input
                         type="text"
@@ -1994,6 +2150,7 @@ export default function AshleyDealCalculator() {
                 )}
                 <div className="input-group-compact">
                   <label className="input-label-mini">Landing</label>
+                  <div className="input-hint">Your cost (what Ashley pays).</div>
                   <div className="input-with-wheel">
                     <input
                       type="text"
@@ -2158,7 +2315,7 @@ export default function AshleyDealCalculator() {
                 ) : (
                   <div className="big-total">
                     <div className="big-total-label">Select a Margin Target</div>
-                    <div className="big-total-amount" style={{ fontSize: '24px', color: '#888' }}>Tap below</div>
+                    <div className="big-total-amount" style={{ fontSize: '24px', color: 'rgba(255,255,255,0.6)' }}>Tap below</div>
                     <div className="big-total-sub">Choose 50%, 49%, 48%, or 47% to see pricing</div>
                   </div>
                 )}
@@ -2476,83 +2633,122 @@ export default function AshleyDealCalculator() {
       {showHelp && (
         <div className="help-overlay" onClick={() => setShowHelp(false)}>
           <div className="help-modal" onClick={e => e.stopPropagation()}>
-            <h2>📖 How to Use This Calculator</h2>
+            <h2>🧭 Simple Guide</h2>
             
             <div className="help-section">
-              <h3>💵 Quick Quote</h3>
-              <p>Fast customer quotes — just enter prices and get the total.</p>
+              <h3>✅ Quick Start</h3>
+              <p>Pick one mode:</p>
               <ul>
-                <li>Enter sale prices from the tags</li>
-                <li>Pick your delivery ($100/$135/$150)</li>
-                <li>Get the total to quote the customer</li>
+                <li><strong>Quote:</strong> total for the customer</li>
+                <li><strong>Margin:</strong> check profit on a deal</li>
+                <li><strong>OTD:</strong> check a customer offer</li>
               </ul>
             </div>
 
             <div className="help-section">
-              <h3>📊 Margin Check</h3>
-              <p>Verify you're hitting margin targets, especially when haggling.</p>
+              <h3>💵 Quote (Fast Total)</h3>
               <ul>
-                <li>Enter <strong>Sale Price</strong> and <strong>Landing Cost</strong></li>
-                <li>See your current margin %</li>
-                <li>See price targets for 50%/49%/48%/47% margins</li>
-                <li>When No-Tax is ON, shows what to quote vs. write on invoice</li>
-                <li><span style={{color: '#2e7d32'}}>■</span> <strong>Green = 50%+</strong> (target)</li>
-                <li><span style={{color: '#f57c00'}}>■</span> <strong>Orange = 47-49%</strong> (haggling OK)</li>
-                <li><span style={{color: '#c62828'}}>■</span> <strong>Red = below 47%</strong> (don't do it!)</li>
+                <li>Enter tag or sale prices</li>
+                <li>Pick delivery</li>
+                <li>Tap Calculate</li>
               </ul>
+              <p style={{ marginTop: '6px' }}><strong>Example:</strong> $1000 tag + $135 delivery = total shown</p>
             </div>
 
             <div className="help-section">
-              <h3>🎯 OTD Price</h3>
-              <p>Customer says "I'll pay $X out the door" — check if it works.</p>
+              <h3>📊 Margin (Profit Check)</h3>
               <ul>
-                <li>Enter <strong>Landing Cost</strong> for each item</li>
-                <li>Enter customer's total offer</li>
-                <li>Calculator backs out delivery & tax to find your sale price</li>
-                <li>Shows the margin you'd actually make</li>
-                <li>Tells you minimum OTD if below 47%</li>
+                <li>Enter sale price</li>
+                <li>Enter landing cost</li>
+                <li>Green = ok. Orange = maybe. Red = no.</li>
               </ul>
+              <p style={{ marginTop: '6px' }}><strong>Rule:</strong> Below 47% = call manager</p>
+            </div>
+
+            <div className="help-section">
+              <h3>🎯 OTD (Customer Offer)</h3>
+              <ul>
+                <li>Enter landing cost</li>
+                <li>Enter customer total offer</li>
+                <li>App shows your margin</li>
+              </ul>
+              <p style={{ marginTop: '6px' }}><strong>Note:</strong> OTD includes tax and delivery</p>
             </div>
 
             <div className="help-section">
               <h3>🚚 Delivery</h3>
               <ul>
-                <li><strong>$100</strong> = small single item</li>
-                <li><strong>$135</strong> = standard (default)</li>
-                <li><strong>$150</strong> = larger/farther</li>
-                <li>Delivery is <strong>always taxed</strong> at 9.125%</li>
-                <li>Shows "Delivery + tax = $XXX" so you know the real cost</li>
-              </ul>
-            </div>
-
-            <div className="help-section">
-              <h3>📏 Margin Rules</h3>
-              <ul>
-                <li><strong>50%+</strong> = Target margin ✓</li>
-                <li><strong>49%</strong> = OK if customer pushes</li>
-                <li><strong>48%</strong> = Getting close to floor</li>
-                <li><strong>47%</strong> = Absolute minimum (manager OK needed)</li>
-                <li><strong>Below 47%</strong> = Don't do it ✗</li>
+                <li>Pick $100 / $135 / $150</li>
+                <li>Delivery is always taxed</li>
               </ul>
             </div>
 
             <div className="help-section">
               <h3>🏷️ No-Tax Promo</h3>
-              <p><strong>What it means:</strong> You quote the customer a tax-included price upfront. They pay the same total either way — it's just how you present it.</p>
               <ul>
-                <li><strong>No-Tax ON:</strong> "Your total is $1,091.25 out the door"</li>
-                <li><strong>No-Tax OFF:</strong> "$1,000 plus tax"</li>
-                <li>Both = customer pays $1,091.25</li>
+                <li>Same total. Just how you say it</li>
+                <li>No-Tax ON: one tax-included price</li>
+                <li>No-Tax OFF: say price + tax</li>
               </ul>
-              <p style={{ marginTop: '8px' }}><strong>For invoices:</strong> Always write the pre-tax merchandise price. Tax auto-calculates to match your quote.</p>
-              <p style={{ marginTop: '8px' }}><strong>Example:</strong></p>
-              <ul>
-                <li>Landing: $500, Target: 50% margin</li>
-                <li>Sale price needed: $1,000</li>
-                <li>Quote customer: $1,091.25 (with tax)</li>
-                <li>Write on invoice: $1,000 merchandise</li>
-                <li>Tax auto-adds: $91.25 → Total: $1,091.25 ✓</li>
-              </ul>
+              <p style={{ marginTop: '6px' }}><strong>Invoice:</strong> Always write pre-tax merchandise</p>
+            </div>
+
+            <div className="help-section">
+              <h3>❓ FAQ</h3>
+              <div className="faq-item">
+                <div className="faq-q">Q: Which mode should I use?</div>
+                <div className="faq-a">A: Quote for totals. Margin for profit. OTD for offers.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: What is landing cost?</div>
+                <div className="faq-a">A: Your cost from the system.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: What is OTD?</div>
+                <div className="faq-a">A: Total with tax and delivery.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: What does No-Tax mean?</div>
+                <div className="faq-a">A: Same total. Just one number to say.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: Why do totals look different?</div>
+                <div className="faq-a">A: No-Tax changes how prices are shown.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: What do I write on the invoice?</div>
+                <div className="faq-a">A: Write pre-tax merchandise.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: Do I tax delivery?</div>
+                <div className="faq-a">A: Yes. Always.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: Why is my margin red?</div>
+                <div className="faq-a">A: The deal is below 47%.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: Can I use this without landing cost?</div>
+                <div className="faq-a">A: Quote mode yes. Margin and OTD need landing cost.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: How do I copy for a manager?</div>
+                <div className="faq-a">A: Tap the Copy block in results.</div>
+              </div>
+            </div>
+
+            <div className="help-section">
+              <h3>📖 Glossary</h3>
+              <div className="glossary-item"><strong>Landing cost:</strong> Your cost.</div>
+              <div className="glossary-item"><strong>Sale price:</strong> Price before tax.</div>
+              <div className="glossary-item"><strong>Quote:</strong> What the customer pays.</div>
+              <div className="glossary-item"><strong>OTD:</strong> Total with tax and delivery.</div>
+              <div className="glossary-item"><strong>Margin:</strong> Your profit percent.</div>
+            </div>
+
+            <div className="help-section">
+              <h3>🚫 Manager Rule</h3>
+              <p>Below 47% margin = stop and call manager.</p>
             </div>
 
             <button className="help-close" onClick={() => setShowHelp(false)}>
