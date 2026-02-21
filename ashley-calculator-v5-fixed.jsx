@@ -97,6 +97,17 @@ function priceForMargin(landingCost, targetMarginPercent) {
   return landingCost / (1 - margin);
 }
 
+// Protection plan tiers based on merchandise total (invoice subtotal)
+// 0-1k: $150, 1-2k: $200, 2-3k: $250, 3-4k: $300, 4-5k: $350
+// 5-6k: $500, then +$50 per additional $1k
+function calculateProtectionPlan(merchandiseTotal) {
+  if (merchandiseTotal <= 0) return 0;
+  const tier = Math.ceil(merchandiseTotal / 1000);
+  if (tier <= 5) return 100 + tier * 50;
+  if (tier === 6) return 500;
+  return 500 + (tier - 6) * 50;
+}
+
 export default function AshleyDealCalculator() {
   const storedState = useMemo(() => loadStoredState(), []);
   const initialItems = Array.isArray(storedState?.items) && storedState.items.length > 0
@@ -143,12 +154,23 @@ export default function AshleyDealCalculator() {
   const [expandedItemPresets, setExpandedItemPresets] = useState({});
   const [showCustomInput, setShowCustomInput] = useState(initialCustomInput);
 
-  // Scroll wheel picker state
-  const [wheelOpen, setWheelOpen] = useState(null); // { itemId, field } or { field: 'otd' }
-  const [wheelValues, setWheelValues] = useState({ thousands: 0, hundreds: 0, tens: 0, ones: 0, tenCents: 0, cents: 0 });
-
   // Copy feedback state
   const [copyFeedback, setCopyFeedback] = useState(false);
+
+  // Protection plan
+  const [includeProtection, setIncludeProtection] = useState(
+    typeof storedState?.includeProtection === 'boolean' ? storedState.includeProtection : false
+  );
+
+  // Calculation history
+  const HISTORY_KEY = 'ashley-calculator-history';
+  const MAX_HISTORY = 10;
+  const [history, setHistory] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    } catch { return []; }
+  });
+  const [showHistory, setShowHistory] = useState(false);
 
   // Helper/tutorial state
   const [helperActive, setHelperActive] = useState(false);
@@ -193,12 +215,13 @@ export default function AshleyDealCalculator() {
         delivery,
         items,
         otdPrice,
+        includeProtection,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       console.error('Failed to save state:', e);
     }
-  }, [mode, salePercent, noTaxPromo, priceType, delivery, items, otdPrice]);
+  }, [mode, salePercent, noTaxPromo, priceType, delivery, items, otdPrice, includeProtection]);
 
   const taxRate = TAX_RATE / 100;
 
@@ -258,6 +281,27 @@ export default function AshleyDealCalculator() {
       return;
     }
     setShowResults(true);
+
+    // Save to history
+    const entry = {
+      id: Date.now(),
+      ts: Date.now(),
+      mode,
+      label: items.filter(i => i.name).map(i => i.name).join(', ') || 'Unnamed deal',
+      itemCount: items.length,
+      delivery,
+      noTaxPromo,
+      priceType,
+      salePercent,
+      otdPrice,
+      includeProtection,
+      items: items.map(i => ({ ...i })),
+    };
+    setHistory(prev => {
+      const next = [entry, ...prev].slice(0, MAX_HISTORY);
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
   };
 
   // Calculate totals
@@ -353,16 +397,18 @@ export default function AshleyDealCalculator() {
   
   const taxOnMerchandise = subtotal * taxRate;
   const totalTax = taxOnMerchandise + deliveryTax;
-  
+
+  const protectionPlanCost = includeProtection ? calculateProtectionPlan(subtotal) : 0;
+
   // Customer total depends on mode and No-Tax setting
   let customerTotal;
   if (mode === 'quote' && noTaxPromo) {
     // Quick Quote + No-Tax: quote prices already include merch tax, just add delivery + delivery tax
     const quoteSubtotal = calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0);
-    customerTotal = quoteSubtotal + deliveryAmount + deliveryTax;
+    customerTotal = quoteSubtotal + deliveryAmount + deliveryTax + protectionPlanCost;
   } else {
     // All other cases: invoice subtotal + all taxes + delivery
-    customerTotal = subtotal + taxOnMerchandise + deliveryAmount + deliveryTax;
+    customerTotal = subtotal + taxOnMerchandise + deliveryAmount + deliveryTax + protectionPlanCost;
   }
 
   // OTD calculations
@@ -477,52 +523,6 @@ export default function AshleyDealCalculator() {
     setShowConfirmReset(false);
   };
 
-  // Scroll wheel picker functions
-  const openWheel = (itemId, field, currentValue) => {
-    const numValue = parseMoney(currentValue) || 0;
-    const dollars = Math.floor(numValue);
-    const cents = Math.round((numValue - dollars) * 100);
-
-    setWheelValues({
-      thousands: Math.floor(dollars / 1000) % 100,
-      hundreds: Math.floor(dollars / 100) % 10,
-      tens: Math.floor(dollars / 10) % 10,
-      ones: dollars % 10,
-      tenCents: Math.floor(cents / 10),
-      cents: cents % 10,
-    });
-    setWheelOpen({ itemId, field });
-  };
-
-  const getWheelTotal = () => {
-    const dollars = wheelValues.thousands * 1000 + wheelValues.hundreds * 100 + wheelValues.tens * 10 + wheelValues.ones;
-    const cents = wheelValues.tenCents * 10 + wheelValues.cents;
-    return dollars + cents / 100;
-  };
-
-  const confirmWheelValue = () => {
-    const numValue = getWheelTotal();
-    if (wheelOpen.field === 'otd') {
-      setOtdPrice(numValue.toFixed(2));
-      clearError('otdPrice');
-    } else if (wheelOpen.field === 'price') {
-      updateItemPrice(wheelOpen.itemId, numValue.toFixed(2));
-    } else if (wheelOpen.field === 'landingCost') {
-      updateItem(wheelOpen.itemId, 'landingCost', numValue.toFixed(2));
-    }
-    setWheelOpen(null);
-  };
-
-  const updateWheelColumn = (column, direction) => {
-    setWheelValues(prev => {
-      const maxValues = { thousands: 99, hundreds: 9, tens: 9, ones: 9, tenCents: 9, cents: 9 };
-      let newValue = prev[column] + direction;
-      if (newValue < 0) newValue = maxValues[column];
-      if (newValue > maxValues[column]) newValue = 0;
-      return { ...prev, [column]: newValue };
-    });
-  };
-
   // Helper functions
   const startHelper = () => {
     setHelperStep(0);
@@ -543,6 +543,30 @@ export default function AshleyDealCalculator() {
 
   const skipHelper = () => {
     setHelperActive(false);
+  };
+
+  const restoreFromHistory = (entry) => {
+    setMode(entry.mode);
+    setItems(entry.items.map((item, index) => normalizeItem(item, Date.now() + index)));
+    setDelivery(String(entry.delivery));
+    setNoTaxPromo(entry.noTaxPromo);
+    setPriceType(entry.priceType ?? 'sale');
+    setSalePercent(entry.salePercent ?? 30);
+    setOtdPrice(entry.otdPrice || '');
+    setIncludeProtection(entry.includeProtection ?? false);
+    setShowHistory(false);
+    setShowResults(false);
+    setErrors({});
+  };
+
+  const formatRelativeTime = (ts) => {
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
   };
 
   const getMarginColor = (margin) => {
@@ -2456,6 +2480,12 @@ export default function AshleyDealCalculator() {
             <div className="header-menu">
               <button
                 className="header-menu-item"
+                onClick={() => { setShowHistory(true); setMenuOpen(false); }}
+              >
+                🕓 History {history.length > 0 && `(${history.length})`}
+              </button>
+              <button
+                className="header-menu-item"
                 onClick={() => { startHelper(); setMenuOpen(false); }}
               >
                 💡 Guide
@@ -2628,6 +2658,23 @@ export default function AshleyDealCalculator() {
                   ))}
                 </div>
               </div>
+
+              {/* Protection Plan */}
+              <div className="setting-compact" style={{ gridColumn: '1 / -1' }}>
+                <label className="setting-label">Protection Plan</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div
+                    className={`toggle-compact ${includeProtection ? 'on' : ''}`}
+                    onClick={() => setIncludeProtection(!includeProtection)}
+                  />
+                  <span style={{ fontSize: 11, color: includeProtection ? colors.success.main : colors.text.secondary }}>
+                    {includeProtection
+                      ? `ON — ${formatMoney(calculateProtectionPlan(subtotal || 0))} added`
+                      : 'OFF'}
+                  </span>
+                </div>
+                <div className="setting-hint">Tiered: $150–$500+ based on merch total.</div>
+              </div>
             </div>
           )}
         </div>
@@ -2636,28 +2683,18 @@ export default function AshleyDealCalculator() {
         {mode === 'otd' && (
           <div className="card">
             <div className="card-title">🎯 Customer's OTD Offer</div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="text"
-                className={`input ${errors.otdPrice ? 'input-error' : ''}`}
-                placeholder="$0.00"
-                value={otdPrice}
-                onChange={(e) => {
-                  setOtdPrice(e.target.value);
-                  clearError('otdPrice');
-                }}
-                inputMode="decimal"
-                style={{ flex: 1, fontSize: '20px', fontWeight: '600' }}
-              />
-              <button
-                className="wheel-btn"
-                onClick={() => openWheel(null, 'otd', otdPrice)}
-                title="Use scroll wheel"
-                style={{ width: '56px', height: '56px', fontSize: '24px' }}
-              >
-                🎚️
-              </button>
-            </div>
+            <input
+              type="text"
+              className={`input ${errors.otdPrice ? 'input-error' : ''}`}
+              placeholder="$0.00"
+              value={otdPrice}
+              onChange={(e) => {
+                setOtdPrice(e.target.value);
+                clearError('otdPrice');
+              }}
+              inputMode="decimal"
+              style={{ fontSize: '20px', fontWeight: '600' }}
+            />
             <div style={{ marginTop: '8px', fontSize: '12px', color: colors.text.secondary }}>
               Enter customer total offer (tax + delivery included)
             </div>
@@ -2789,43 +2826,27 @@ export default function AshleyDealCalculator() {
                           ? 'Enter tag price from the label.'
                           : 'Enter sale price after discount.'}
                     </div>
-                    <div className="input-with-wheel">
-                      <input
-                        type="text"
-                        className={`input-compact ${errors.price ? 'input-error' : ''}`}
-                        placeholder="$0.00"
-                        value={item.price}
-                        onChange={(e) => updateItemPrice(item.id, e.target.value)}
-                        inputMode="decimal"
-                      />
-                      <button
-                        className="wheel-btn-compact"
-                        onClick={() => openWheel(item.id, 'price', item.price)}
-                      >
-                        🎚️
-                      </button>
-                    </div>
+                    <input
+                      type="text"
+                      className={`input-compact ${errors.price ? 'input-error' : ''}`}
+                      placeholder="$0.00"
+                      value={item.price}
+                      onChange={(e) => updateItemPrice(item.id, e.target.value)}
+                      inputMode="decimal"
+                    />
                   </div>
                 )}
                 <div className="input-group-compact">
                   <label className="input-label-mini">Landing</label>
                   <div className="input-hint">Your cost (what Ashley pays).</div>
-                  <div className="input-with-wheel">
-                    <input
-                      type="text"
-                      className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
-                      placeholder="$0.00"
-                      value={item.landingCost}
-                      onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
-                      inputMode="decimal"
-                    />
-                    <button
-                      className="wheel-btn-compact"
-                      onClick={() => openWheel(item.id, 'landingCost', item.landingCost)}
-                    >
-                      🎚️
-                    </button>
-                  </div>
+                  <input
+                    type="text"
+                    className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
+                    placeholder="$0.00"
+                    value={item.landingCost}
+                    onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
+                    inputMode="decimal"
+                  />
                   <button
                     className="estimate-link-btn"
                     onClick={() => estimateLandingCost(item.id)}
@@ -2900,6 +2921,12 @@ export default function AshleyDealCalculator() {
                             <span style={{ fontWeight: 600, color: colors.text.primary }}>{formatMoney(deliveryAmount)}</span>
                           </div>
                         )}
+                        {protectionPlanCost > 0 && (
+                          <div className="breakdown-row" style={{ padding: '3px 0' }}>
+                            <span style={{ fontSize: '13px', color: colors.text.primary }}>Protection Plan</span>
+                            <span style={{ fontWeight: 600, color: colors.text.primary }}>{formatMoney(protectionPlanCost)}</span>
+                          </div>
+                        )}
                         <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
                           Tax auto-calculates to {formatMoney(totalTax)} → Total = {formatMoney(customerTotal)} ✓
                         </div>
@@ -2947,6 +2974,12 @@ export default function AshleyDealCalculator() {
                           <span className="breakdown-label">+ Tax (9.125%)</span>
                           <span className="breakdown-value">{formatMoney(totalTax)}</span>
                         </div>
+                        {protectionPlanCost > 0 && (
+                          <div className="breakdown-row">
+                            <span className="breakdown-label">Protection Plan</span>
+                            <span className="breakdown-value">{formatMoney(protectionPlanCost)}</span>
+                          </div>
+                        )}
                         <div className="breakdown-row" style={{ background: colors.primary[50], margin: '0 -20px', padding: '10px 20px' }}>
                           <span className="breakdown-label" style={{ fontWeight: 600 }}>Customer Pays</span>
                           <span className="breakdown-value" style={{ fontSize: '18px' }}>{formatMoney(customerTotal)}</span>
@@ -3002,6 +3035,23 @@ export default function AshleyDealCalculator() {
                   </div>
                 )}
 
+                {overallMargin !== null && overallMargin < 47 && totalLandingCost > 0 && (
+                  <div style={{ background: colors.error.light, border: `1px solid ${colors.error.main}50`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: colors.error.main, marginBottom: '6px' }}>Counter needed — below 47% floor</div>
+                    <div style={{ fontSize: '13px', color: colors.text.primary }}>
+                      Min invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 47))}</strong> for 47%
+                    </div>
+                    <div style={{ fontSize: '13px', color: colors.text.primary, marginTop: '2px' }}>
+                      Target invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 50))}</strong> for 50%
+                    </div>
+                    {noTaxPromo && (
+                      <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '4px' }}>
+                        Customer quote: <strong>{formatMoney(priceForMargin(totalLandingCost, 47) * (1 + taxRate))}</strong> min • <strong>{formatMoney(priceForMargin(totalLandingCost, 50) * (1 + taxRate))}</strong> target
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <details className="result-section" open>
                   <summary>
                     Margin by Item
@@ -3030,17 +3080,17 @@ export default function AshleyDealCalculator() {
                             {noTaxPromo ? (
                               <>
                                 Quote: {formatMoney(item.quotePrice)} • Invoice: {formatMoney(item.invoicePrice)}
+                                {item.qty > 1 && <span style={{ color: colors.text.secondary }}> (per unit × {item.qty})</span>}
                               </>
                             ) : (
                               <>
                                 Sale: {formatMoney(item.invoicePrice)} (+ tax at register)
+                                {item.qty > 1 && <span style={{ color: colors.text.secondary }}> per unit × {item.qty}</span>}
                               </>
                             )}
                             <br/>
-                            Landing: {formatMoney(item.landingCost)} • 
-                            <strong style={{ color: getMarginColor(item.margin || 0) }}>
-                              {' '}Profit: {formatMoney(item.profitPerUnit)}/unit
-                            </strong>
+                            Landing: {formatMoney(item.landingCost)}/unit
+                            {item.qty > 1 && <span> • Line total: {formatMoney(item.lineTotal)}</span>}
                           </div>
                         ) : (
                           <div style={{ fontSize: '12px', color: colors.text.secondary, lineHeight: 1.6 }}>
@@ -3173,6 +3223,12 @@ export default function AshleyDealCalculator() {
                       <div className="breakdown-row">
                         <span className="breakdown-label">Delivery + Tax</span>
                         <span className="breakdown-value">{formatMoney(deliveryAmount + deliveryTax)}</span>
+                      </div>
+                    )}
+                    {protectionPlanCost > 0 && (
+                      <div className="breakdown-row">
+                        <span className="breakdown-label">Protection Plan</span>
+                        <span className="breakdown-value">{formatMoney(protectionPlanCost)}</span>
                       </div>
                     )}
                   </div>
@@ -3528,80 +3584,58 @@ export default function AshleyDealCalculator() {
         </div>
       )}
 
-      {/* Scroll Wheel Picker Modal */}
-      {wheelOpen && (
-        <div className="wheel-overlay" onClick={() => setWheelOpen(null)}>
-          <div className="wheel-modal" onClick={e => e.stopPropagation()}>
-            <div className="wheel-header">
-              <span className="wheel-title">
-                {wheelOpen.field === 'otd' ? 'Set OTD Price' :
-                 wheelOpen.field === 'price' ? 'Set Price' : 'Set Landing Cost'}
-              </span>
-              <button className="wheel-cancel" onClick={() => setWheelOpen(null)}>Cancel</button>
-            </div>
 
-            <div className="wheel-display">
-              {formatMoney(getWheelTotal())}
-            </div>
-
-            <div className="wheel-columns">
-              {/* Dollars section */}
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ fontSize: '24px', color: '#888', marginRight: '4px' }}>$</span>
-              </div>
-
-              {/* Thousands (can be 0-99) */}
-              <div className="wheel-column wide">
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('thousands', 1)}>▲</button>
-                <div className="wheel-value">{wheelValues.thousands.toString().padStart(2, '0')}</div>
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('thousands', -1)}>▼</button>
-                <div className="wheel-label">1000s</div>
-              </div>
-
-              {/* Hundreds */}
-              <div className="wheel-column">
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('hundreds', 1)}>▲</button>
-                <div className="wheel-value">{wheelValues.hundreds}</div>
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('hundreds', -1)}>▼</button>
-                <div className="wheel-label">100s</div>
-              </div>
-
-              {/* Tens */}
-              <div className="wheel-column">
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('tens', 1)}>▲</button>
-                <div className="wheel-value">{wheelValues.tens}</div>
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('tens', -1)}>▼</button>
-                <div className="wheel-label">10s</div>
-              </div>
-
-              {/* Ones */}
-              <div className="wheel-column">
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('ones', 1)}>▲</button>
-                <div className="wheel-value">{wheelValues.ones}</div>
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('ones', -1)}>▼</button>
-                <div className="wheel-label">1s</div>
-              </div>
-
-              <div className="wheel-separator">.</div>
-
-              {/* Ten cents */}
-              <div className="wheel-column">
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('tenCents', 1)}>▲</button>
-                <div className="wheel-value">{wheelValues.tenCents}</div>
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('tenCents', -1)}>▼</button>
-                <div className="wheel-label">10¢</div>
-              </div>
-
-              {/* Cents */}
-              <div className="wheel-column">
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('cents', 1)}>▲</button>
-                <div className="wheel-value">{wheelValues.cents}</div>
-                <button className="wheel-arrow" onClick={() => updateWheelColumn('cents', -1)}>▼</button>
-                <div className="wheel-label">1¢</div>
-              </div>
-            </div>
-
-            <button className="wheel-confirm" onClick={confirmWheelValue}>
+      {/* History Modal */}
+      {showHistory && (
+        <div className="help-overlay" onClick={() => setShowHistory(false)}>
+          <div className="help-modal" onClick={e => e.stopPropagation()}>
+            <h2 style={{ marginBottom: '4px' }}>🕓 Recent Deals</h2>
+            <p style={{ fontSize: '12px', color: colors.text.secondary, marginBottom: '16px' }}>Tap a deal to restore it.</p>
+            {history.length === 0 ? (
+              <p style={{ fontSize: '14px', color: colors.text.secondary, textAlign: 'center', padding: '24px 0' }}>
+                No history yet. Calculate a deal to save it here.
+              </p>
+            ) : (
+              history.map((entry) => (
+                <div
+                  key={entry.id}
+                  onClick={() => restoreFromHistory(entry)}
+                  style={{
+                    background: colors.primary[50],
+                    border: `1px solid ${colors.primary[200]}`,
+                    borderRadius: '10px',
+                    padding: '12px 14px',
+                    marginBottom: '10px',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: colors.text.primary }}>
+                      {entry.mode === 'quote' ? '💵' : entry.mode === 'margin' ? '📊' : '🎯'}{' '}
+                      {entry.mode === 'quote' ? 'Quote' : entry.mode === 'margin' ? 'Margin' : 'OTD'}
+                    </span>
+                    <span style={{ fontSize: '11px', color: colors.text.secondary }}>{formatRelativeTime(entry.ts)}</span>
+                  </div>
+                  <div style={{ fontSize: '12px', color: colors.text.secondary }}>
+                    {entry.label || 'Unnamed deal'} • {entry.itemCount} item{entry.itemCount !== 1 ? 's' : ''}
+                    {entry.noTaxPromo ? ' • No-Tax' : ''}{Number(entry.delivery) > 0 ? ` • $${entry.delivery} delivery` : ''}
+                  </div>
+                </div>
+              ))
+            )}
+            {history.length > 0 && (
+              <button
+                onClick={() => {
+                  setHistory([]);
+                  try { localStorage.removeItem(HISTORY_KEY); } catch {}
+                }}
+                style={{ background: 'none', border: 'none', color: colors.error.main, fontSize: '13px', cursor: 'pointer', padding: '8px 0', width: '100%', textAlign: 'center' }}
+              >
+                Clear history
+              </button>
+            )}
+            <button className="help-close" onClick={() => setShowHistory(false)} style={{ marginTop: '8px' }}>
               Done
             </button>
           </div>
