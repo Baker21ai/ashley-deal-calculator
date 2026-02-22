@@ -10,7 +10,7 @@ const MORE_ITEM_PRESETS = [
   'Loveseat', 'Chair', 'Ottoman', 'Recliner', 'Nightstand',
   'Chest', 'Mirror', 'Dining Table', 'Dining Chair', 'Buffet',
   'Coffee Table', 'End Table', 'Console Table', 'TV Stand', 'Bookcase',
-  'Dining Chairs', 'Desk', 'Bookshelf', 'Accent Chair', 'Headboard', 'Bunk Bed'
+  'Desk', 'Bookshelf', 'Accent Chair', 'Headboard', 'Bunk Bed'
 ];
 
 const createEmptyItem = (id = Date.now()) => ({
@@ -153,6 +153,7 @@ export default function AshleyDealCalculator() {
   // Item presets UI state - track which items have expanded presets
   const [expandedItemPresets, setExpandedItemPresets] = useState({});
   const [showCustomInput, setShowCustomInput] = useState(initialCustomInput);
+  const [expandedMore, setExpandedMore] = useState({});
 
   // Copy feedback state
   const [copyFeedback, setCopyFeedback] = useState(false);
@@ -172,37 +173,6 @@ export default function AshleyDealCalculator() {
   });
   const [showHistory, setShowHistory] = useState(false);
 
-  // Helper/tutorial state
-  const [helperActive, setHelperActive] = useState(false);
-  const [helperStep, setHelperStep] = useState(0);
-
-  // Helper steps configuration
-  const helperSteps = [
-    {
-      id: 'mode',
-      title: 'Step 1: Pick a Mode',
-      description: 'Quote = total. Margin = profit check. OTD = customer offer.',
-      highlight: 'mode-tabs',
-    },
-    {
-      id: 'settings',
-      title: 'Step 2: Set Deal Options',
-      description: 'Pick sale %, No-Tax, and delivery.',
-      highlight: 'deal-settings',
-    },
-    {
-      id: 'items',
-      title: 'Step 3: Add Items',
-      description: 'Pick item type. Enter price and landing cost.',
-      highlight: 'items-section',
-    },
-    {
-      id: 'calculate',
-      title: 'Step 4: Calculate',
-      description: 'Tap the button to see results.',
-      highlight: 'calc-button',
-    },
-  ];
 
   // Save state to localStorage whenever it changes
   useLayoutEffect(() => {
@@ -470,38 +440,26 @@ export default function AshleyDealCalculator() {
   const estimateLandingCost = (itemId) => {
     const item = items.find(i => i.id === itemId);
     if (!item) return;
-
-    let fullRetail = 0;
     const currentPrice = parseMoney(item.price);
-
+    let prefillRetail = '';
     if (currentPrice > 0) {
-      // Price exists - derive full retail based on priceType
       if (priceType === 'tag') {
-        // Price entered is already the full retail/tag price
-        fullRetail = currentPrice;
+        prefillRetail = currentPrice.toFixed(2);
       } else {
-        // Price entered is sale price - back-calculate to full retail
         const discount = salePercent / 100;
-        fullRetail = currentPrice / (1 - discount);
+        prefillRetail = (currentPrice / (1 - discount)).toFixed(2);
       }
-    } else {
-      // No price entered - prompt for full retail price
-      const promptValue = window.prompt('Enter the full retail price:');
-      if (promptValue === null) return; // User cancelled
-      const parsedPrompt = parseMoney(promptValue);
-      if (parsedPrompt <= 0) {
-        alert('Please enter a valid retail price.');
-        return;
-      }
-      fullRetail = parsedPrompt;
     }
+    setEstimateModal({ open: true, itemId, retailPrice: prefillRetail });
+  };
 
-    // Calculate landing cost: full retail / 3.3
-    const estimatedLandingCost = fullRetail / 3.3;
-    const roundedCost = Math.round(estimatedLandingCost * 100) / 100; // Round to 2 decimal places
-    
-    // Update the landing cost field
-    updateItem(itemId, 'landingCost', roundedCost.toFixed(2));
+  const applyEstimate = () => {
+    const retail = parseMoney(estimateModal.retailPrice);
+    if (retail > 0) {
+      const estimated = Math.round((retail / 3.3) * 100) / 100;
+      updateItem(estimateModal.itemId, 'landingCost', estimated.toFixed(2));
+    }
+    setEstimateModal({ open: false, itemId: null, retailPrice: '' });
   };
   
   const startOver = () => {
@@ -519,31 +477,11 @@ export default function AshleyDealCalculator() {
     setErrors({});
     setExpandedItemPresets({});
     setShowCustomInput({});
+    setExpandedMore({});
     setShowResults(false);
     setShowConfirmReset(false);
   };
 
-  // Helper functions
-  const startHelper = () => {
-    setHelperStep(0);
-    setHelperActive(true);
-  };
-
-  const nextHelperStep = () => {
-    if (helperStep < helperSteps.length - 1) {
-      setHelperStep(helperStep + 1);
-    } else {
-      setHelperActive(false);
-      // Remember that user completed the tutorial
-      try {
-        localStorage.setItem('ashley-helper-completed', 'true');
-      } catch (e) {}
-    }
-  };
-
-  const skipHelper = () => {
-    setHelperActive(false);
-  };
 
   const restoreFromHistory = (entry) => {
     setMode(entry.mode);
@@ -576,9 +514,9 @@ export default function AshleyDealCalculator() {
   };
 
   const getMarginLabel = (margin) => {
-    if (margin >= 50) return '✓ Great';
-    if (margin >= 47) return '⚠️ OK';
-    return '✗ Too Low';
+    if (margin >= 50) return 'Great';
+    if (margin >= 47) return 'OK';
+    return 'Too Low';
   };
 
   // Copy helper with feedback
@@ -704,12 +642,32 @@ export default function AshleyDealCalculator() {
     );
   };
 
-  // State for settings accordion
-  const [settingsExpanded, setSettingsExpanded] = useState(false);
-  // State for guide accordion
-  const [guideExpanded, setGuideExpanded] = useState(false);
   // State for header menu
   const [menuOpen, setMenuOpen] = useState(false);
+  // Settings modal (gear icon)
+  const [settingsExpanded, setSettingsExpanded] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showCustomDelivery, setShowCustomDelivery] = useState(false);
+  // Estimate landing cost modal (replaces window.prompt)
+  const [estimateModal, setEstimateModal] = useState({ open: false, itemId: null, retailPrice: '' });
+
+  const salePercentOptions = [30, 35, 40];
+  const deliveryOptions = ['0', '100', '135', '150'];
+
+  const cycleNextSalePercent = () => {
+    const idx = salePercentOptions.indexOf(salePercent);
+    setSalePercent(salePercentOptions[(idx + 1) % salePercentOptions.length]);
+  };
+
+  const cycleNextDelivery = () => {
+    const idx = deliveryOptions.indexOf(delivery);
+    if (idx === -1) {
+      setDelivery(deliveryOptions[0]);
+    } else {
+      setDelivery(deliveryOptions[(idx + 1) % deliveryOptions.length]);
+    }
+    setShowCustomDelivery(false);
+  };
 
   const currentGuide = (() => {
     if (mode === 'quote') {
@@ -774,13 +732,18 @@ export default function AshleyDealCalculator() {
           --success: #34D399;
           --warning: #FBBF24;
           --danger: #F87171;
-          --radius-lg: 18px;
+          --radius-lg: 20px;
           --radius-md: 12px;
           --radius-sm: 8px;
           --shadow-soft: 0 10px 30px rgba(0,0,0,0.3);
-          --shadow-card: 0 6px 18px rgba(0,0,0,0.2);
+          --shadow-card: 0 4px 12px rgba(0,0,0,0.2);
           --shadow-glow: 0 0 20px rgba(226,55,68,0.3);
-          --tap: 48px;
+          --tap: 44px;
+          --text-xs: 11px;
+          --text-sm: 13px;
+          --text-md: 15px;
+          --text-lg: 20px;
+          --text-xl: 32px;
         }
 
         body {
@@ -800,20 +763,17 @@ export default function AshleyDealCalculator() {
         /* Sticky Header */
         .header {
           position: sticky;
-          top: 10px;
+          top: 8px;
           z-index: 40;
-          background: rgba(30, 34, 48, 0.85);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
+          background: var(--surface);
           border: 1px solid var(--line);
-          border-radius: var(--radius-lg);
-          padding: 14px 16px;
-          margin: 0 0 16px 0;
+          border-radius: var(--radius-md);
+          padding: 12px 16px;
+          margin: 0 0 12px 0;
           box-shadow: var(--shadow-card);
           display: flex;
           align-items: center;
           justify-content: space-between;
-          border-bottom: 2px solid var(--crimson);
         }
         .header-content {
           flex: 1;
@@ -838,14 +798,14 @@ export default function AshleyDealCalculator() {
           border: 1px solid var(--line);
           width: var(--tap);
           height: var(--tap);
-          border-radius: 12px;
+          border-radius: var(--radius-sm);
           font-size: 18px;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
           color: var(--text);
-          transition: all 0.2s;
+          transition: all 0.15s;
         }
         .header-menu-btn:hover,
         .header-reset-btn:hover {
@@ -857,10 +817,8 @@ export default function AshleyDealCalculator() {
           top: 100%;
           right: 16px;
           background: var(--surface);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
           border: 1px solid var(--line);
-          border-radius: 14px;
+          border-radius: var(--radius-md);
           box-shadow: var(--shadow-card);
           overflow: hidden;
           min-width: 160px;
@@ -870,12 +828,12 @@ export default function AshleyDealCalculator() {
           display: flex;
           align-items: center;
           gap: 10px;
-          padding: 14px 16px;
+          padding: 12px 16px;
           border: none;
           background: none;
           width: 100%;
           text-align: left;
-          font-size: 14px;
+          font-size: var(--text-sm);
           color: var(--text);
           cursor: pointer;
           transition: background 0.15s;
@@ -890,145 +848,52 @@ export default function AshleyDealCalculator() {
         .mode-tabs {
           display: flex;
           background: var(--surface);
-          border-radius: 16px;
+          border-radius: var(--radius-md);
           padding: 4px;
-          margin-bottom: 14px;
+          margin-bottom: 12px;
           border: 1px solid var(--line);
-          box-shadow: var(--shadow-card);
         }
         .mode-tab {
           flex: 1;
-          padding: 14px 8px;
+          padding: 10px 8px;
           border: none;
           background: transparent;
-          border-radius: 12px;
-          font-size: 13px;
+          border-radius: var(--radius-sm);
+          font-size: var(--text-sm);
           font-weight: 600;
           color: var(--muted);
           cursor: pointer;
-          transition: all 0.2s;
+          transition: all 0.15s;
           min-height: var(--tap);
           display: flex;
           align-items: center;
           justify-content: center;
         }
         .mode-tab.active {
-          background: var(--crimson);
+          background: var(--primary);
           color: white;
-          box-shadow: 0 0 12px var(--crimson-glow), inset 0 1px 0 rgba(255,255,255,0.1);
         }
         .mode-tab:not(.active):hover { 
           background: var(--glass);
           color: var(--text);
         }
 
-        .mode-hint {
-          margin: -6px 0 12px;
-          font-size: 12px;
-          color: var(--muted);
-          text-align: center;
-        }
-        .mini-guide {
-          background: var(--surface);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          border-radius: 14px;
-          margin-bottom: 16px;
-          border: 1px solid var(--line);
-          box-shadow: var(--shadow-card);
-          overflow: hidden;
-        }
-        .mini-guide-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 14px;
-          cursor: pointer;
-          user-select: none;
-          transition: background 0.15s;
-        }
-        .mini-guide-header:hover {
-          background: var(--glass);
-        }
-        .mini-guide-title {
-          font-size: 13px;
-          font-weight: 700;
-          color: var(--crimson);
-          font-family: var(--font-display);
-        }
-        .mini-guide-chevron {
-          font-size: 12px;
-          color: var(--crimson);
-          transition: transform 0.2s;
-        }
-        .mini-guide-chevron.open {
-          transform: rotate(180deg);
-        }
-        .mini-guide-content {
-          padding: 0 14px 14px 14px;
-        }
-        .mini-guide-row {
-          font-size: 12px;
-          color: var(--text);
-          padding: 2px 0;
-        }
-        .mini-guide-example {
-          font-size: 12px;
-          color: var(--muted);
-          margin-top: 6px;
-        }
-        .mini-guide-mistake {
-          font-size: 12px;
-          color: var(--crimson);
-          margin-top: 6px;
-          font-weight: 600;
-        }
-        .mini-guide-note {
-          font-size: 11px;
-          color: var(--warning);
-          margin-top: 6px;
-          font-weight: 700;
-        }
-        .section-hint {
-          font-size: 11px;
-          color: var(--muted);
-          margin: -4px 0 8px;
-        }
-        .setting-hint {
-          font-size: 11px;
-          color: var(--muted);
-          margin: 4px 0 8px;
-        }
-        .input-hint {
-          font-size: 11px;
-          color: var(--muted);
-          margin: 4px 0 6px;
-        }
-        .item-hints-row {
-          font-size: 11px;
-          color: var(--muted);
-          margin: 4px 0 8px;
-          display: flex;
-          justify-content: space-between;
-        }
 
         .card {
           background: var(--surface);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          border-radius: var(--radius-lg);
-          padding: 18px;
-          margin-bottom: 14px;
+          border-radius: var(--radius-md);
+          padding: 16px;
+          margin-bottom: 12px;
           box-shadow: var(--shadow-card);
           border: 1px solid var(--line);
         }
 
         .card-title {
-          font-size: 14px;
+          font-size: var(--text-md);
           font-weight: 700;
           color: var(--text);
           font-family: var(--font-display);
-          margin-bottom: 14px;
+          margin-bottom: 12px;
         }
 
         .pill-group {
@@ -1104,22 +969,32 @@ export default function AshleyDealCalculator() {
 
         .input {
           width: 100%;
-          padding: 14px 16px;
-          border: 2px solid var(--line);
-          border-radius: 12px;
-          font-size: 18px;
+          padding: 12px 16px;
+          border: 1px solid var(--line);
+          border-radius: var(--radius-sm);
+          font-size: var(--text-md);
           background: var(--bg);
           color: var(--text);
-          transition: all 0.2s;
-          min-height: 56px;
+          transition: all 0.15s;
+          min-height: var(--tap);
         }
         .input:focus { 
           outline: none; 
           border-color: var(--crimson);
-          box-shadow: 0 0 0 3px var(--crimson-glow);
+          box-shadow: 0 0 0 2px var(--crimson-glow);
         }
         .input::placeholder { color: var(--muted); }
-        .input.small { padding: 12px 14px; font-size: 16px; min-height: 48px; }
+        .input-error {
+          border-color: var(--danger) !important;
+          box-shadow: 0 0 0 2px rgba(248,113,113,0.15) !important;
+        }
+        .error-text {
+          color: var(--danger);
+          font-size: var(--text-xs);
+          margin-top: 4px;
+          margin-bottom: 4px;
+          font-weight: 600;
+        }
 
         .item-row {
           background: var(--surface-2);
@@ -1175,16 +1050,16 @@ export default function AshleyDealCalculator() {
         
         .add-item-btn {
           width: 100%;
-          padding: 14px;
-          background: var(--surface);
-          border: 2px dashed var(--line);
-          border-radius: 12px;
+          padding: 10px;
+          background: transparent;
+          border: 1px dashed var(--line);
+          border-radius: var(--radius-sm);
           color: var(--crimson);
-          font-size: 15px;
+          font-size: var(--text-sm);
           font-weight: 600;
           cursor: pointer;
-          transition: all 0.2s;
-          min-height: 52px;
+          transition: all 0.15s;
+          min-height: 40px;
         }
         .add-item-btn:hover {
           background: var(--glass);
@@ -1196,10 +1071,10 @@ export default function AshleyDealCalculator() {
           bottom: 0;
           left: 0;
           right: 0;
-          padding: 16px;
-          background: linear-gradient(to top, var(--bg-deep) 80%, transparent);
+          padding: 12px 16px;
+          background: linear-gradient(to top, var(--bg-deep) 70%, transparent);
           z-index: 50;
-          padding-bottom: calc(16px + env(safe-area-inset-bottom));
+          padding-bottom: calc(12px + env(safe-area-inset-bottom));
         }
         .sticky-bottom .calc-btn {
           max-width: 500px;
@@ -1248,9 +1123,7 @@ export default function AshleyDealCalculator() {
         }
         .result-card {
           background: var(--surface);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          border-radius: 20px 20px 0 0;
+          border-radius: var(--radius-lg) var(--radius-lg) 0 0;
           padding: 0;
           width: 100%;
           max-width: 520px;
@@ -1260,6 +1133,53 @@ export default function AshleyDealCalculator() {
           overflow: hidden;
           animation: sheetUp 0.22s ease-out;
         }
+        .sheet-handle {
+          width: 40px;
+          height: 4px;
+          background: var(--line);
+          border-radius: 999px;
+          margin: 8px auto 6px;
+        }
+        .sheet-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 10px 16px 0;
+          border-bottom: 1px solid var(--line);
+        }
+        .sheet-title {
+          font-size: var(--text-md);
+          font-weight: 700;
+          color: var(--text);
+        }
+        .sheet-close {
+          background: var(--glass);
+          border: 1px solid var(--line);
+          border-radius: var(--radius-sm);
+          min-width: 36px;
+          min-height: 36px;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--text);
+          cursor: pointer;
+          transition: all 0.15s;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .sheet-close:hover {
+          background: var(--surface-2);
+          border-color: var(--crimson);
+        }
+        .sheet-content {
+          padding: 12px 16px 20px;
+          max-height: 78vh;
+          overflow: auto;
+          overscroll-behavior: contain;
+          padding-bottom: calc(20px + env(safe-area-inset-bottom));
+          background: var(--surface);
+        }
+
         .result-title {
           text-align: center;
           font-size: 18px;
@@ -1272,9 +1192,8 @@ export default function AshleyDealCalculator() {
           text-align: center;
           padding: 20px;
           background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
-          border-radius: 12px;
-          margin-bottom: 16px;
-          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
+          border-radius: var(--radius-md);
+          margin-bottom: 12px;
         }
         .big-total-label {
           font-size: 13px;
@@ -1294,9 +1213,9 @@ export default function AshleyDealCalculator() {
         
         .badge {
           display: inline-block;
-          padding: 6px 12px;
-          border-radius: 20px;
-          font-size: 13px;
+          padding: 4px 10px;
+          border-radius: var(--radius-lg);
+          font-size: var(--text-xs);
           font-weight: 600;
           margin-top: 8px;
         }
@@ -1326,7 +1245,7 @@ export default function AshleyDealCalculator() {
         .margin-item {
           background: var(--surface-2);
           border: 1px solid var(--line);
-          border-radius: 10px;
+          border-radius: var(--radius-sm);
           padding: 12px;
           margin-bottom: 10px;
         }
@@ -1352,12 +1271,13 @@ export default function AshleyDealCalculator() {
         .margin-price-box {
           flex: 1;
           background: var(--bg);
-          border: 2px solid var(--line);
+          border: 1px solid var(--line);
           border-radius: 8px;
           padding: 8px 4px;
           text-align: center;
-          transition: all 0.2s;
-          min-height: 52px;
+          transition: all 0.15s;
+          min-height: 48px;
+          cursor: pointer;
         }
         .margin-price-box:hover {
           border-color: var(--crimson);
@@ -1366,7 +1286,6 @@ export default function AshleyDealCalculator() {
         .margin-price-box.current {
           border-color: var(--crimson);
           background: var(--crimson);
-          box-shadow: 0 0 12px var(--crimson-glow);
         }
         .margin-price-box.current .margin-price-label,
         .margin-price-box.current .margin-price-value {
@@ -1375,6 +1294,32 @@ export default function AshleyDealCalculator() {
         .margin-price-label { font-size: 10px; color: var(--muted); }
         .margin-price-value { font-size: 13px; font-weight: 600; margin-top: 2px; color: var(--text); }
         
+        details.result-section {
+          border: 1px solid var(--line);
+          border-radius: var(--radius-md);
+          padding: 10px 12px;
+          margin: 12px 0;
+          background: var(--surface-2);
+        }
+        details.result-section summary {
+          list-style: none;
+          cursor: pointer;
+          font-size: var(--text-sm);
+          font-weight: 700;
+          color: var(--text);
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          min-height: var(--tap);
+        }
+        details.result-section summary::-webkit-details-marker { display: none; }
+        .summary-chevron {
+          font-size: 12px;
+          color: var(--muted);
+          transition: transform 0.15s;
+        }
+        details[open] .summary-chevron { transform: rotate(180deg); }
+
         .result-buttons {
           display: flex;
           gap: 10px;
@@ -1425,9 +1370,7 @@ export default function AshleyDealCalculator() {
         }
         .help-modal {
           background: var(--surface);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          border-radius: 16px;
+          border-radius: var(--radius-md);
           padding: 24px;
           width: 100%;
           max-width: 480px;
@@ -1438,14 +1381,14 @@ export default function AshleyDealCalculator() {
         .help-modal h2 {
           margin: 0 0 16px;
           color: var(--text);
-          font-size: 20px;
+          font-size: var(--text-lg);
         }
         .help-section {
           margin-bottom: 20px;
         }
         .help-section h3 {
-          font-size: 15px;
-          color: var(--crimson);
+          font-size: var(--text-md);
+          color: var(--primary);
           margin: 0 0 8px;
           display: flex;
           align-items: center;
@@ -1484,17 +1427,17 @@ export default function AshleyDealCalculator() {
         }
         .help-close {
           width: 100%;
-          padding: 14px;
+          padding: 12px;
           background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
           color: white;
           border: none;
-          border-radius: 10px;
-          font-size: 15px;
+          border-radius: var(--radius-sm);
+          font-size: var(--text-sm);
           font-weight: 600;
           cursor: pointer;
           margin-top: 8px;
           box-shadow: 0 4px 12px var(--crimson-glow);
-          transition: all 0.2s;
+          transition: all 0.15s;
         }
         .help-close:hover {
           box-shadow: 0 6px 16px var(--crimson-glow);
@@ -1797,70 +1740,59 @@ export default function AshleyDealCalculator() {
           display: none;
         }
 
-        /* Settings Accordion */
-        .settings-accordion {
-          background: var(--surface);
-          backdrop-filter: blur(12px);
-          -webkit-backdrop-filter: blur(12px);
-          border-radius: 14px;
-          margin-bottom: 14px;
-          box-shadow: var(--shadow-card);
-          border: 1px solid var(--line);
-          overflow: hidden;
-        }
-        .settings-accordion-header {
+        /* Settings chip bar */
+        .settings-bar {
           display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 14px 16px;
-          cursor: pointer;
-          user-select: none;
-          transition: background 0.15s;
-        }
-        .settings-accordion-header:hover {
-          background: var(--glass);
-        }
-        .settings-accordion-title {
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--text);
-          display: flex;
-          align-items: center;
           gap: 8px;
+          margin-bottom: 12px;
+          flex-wrap: wrap;
+          align-items: center;
         }
-        .settings-accordion-chevron {
-          font-size: 12px;
-          color: var(--crimson);
-          transition: transform 0.2s;
+        .setting-chip {
+          padding: 6px 12px;
+          border-radius: var(--radius-sm);
+          background: var(--surface);
+          border: 1px solid var(--line);
+          color: var(--muted);
+          font-size: var(--text-xs);
+          font-weight: 600;
+          cursor: pointer;
+          transition: all 0.15s;
+          font-family: var(--font-body);
         }
-        .settings-accordion-chevron.open {
-          transform: rotate(180deg);
+        .setting-chip:hover {
+          background: var(--glass);
+          border-color: var(--primary);
+          color: var(--text);
         }
-        .settings-grid {
+        .setting-chip.active {
+          background: var(--primary);
+          color: white;
+          border-color: var(--primary);
+        }
+        .setting-chip.gear {
+          padding: 6px 10px;
+          font-size: 14px;
+        }
+
+        /* Settings modal (full settings panel) */
+        .settings-modal-content {
           display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 12px;
-          padding: 0 16px 16px;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
         }
-        .settings-grid.full-width {
-          grid-template-columns: 1fr;
-        }
-        .setting-compact {
+        .settings-modal-content .setting-group {
           display: flex;
           flex-direction: column;
-          gap: 6px;
+          gap: 8px;
         }
-        .setting-label {
-          font-size: 11px;
+        .settings-modal-content .setting-group.full-width {
+          grid-column: 1 / -1;
+        }
+        .settings-modal-content .setting-group label {
+          font-size: var(--text-xs);
           font-weight: 600;
-          color: var(--muted);
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
-        }
-        .setting-preview {
-          font-size: 12px;
-          color: var(--crimson);
-          font-weight: 500;
+          color: var(--text);
         }
 
         /* Compact pills for settings */
@@ -1871,14 +1803,14 @@ export default function AshleyDealCalculator() {
         }
         .pill-compact {
           padding: 8px 12px;
-          border-radius: 20px;
-          border: 2px solid var(--line);
+          border-radius: var(--radius-sm);
+          border: 1px solid var(--line);
           background: var(--surface);
-          font-size: 13px;
-          font-weight: 500;
+          font-size: var(--text-xs);
+          font-weight: 600;
           color: var(--muted);
           cursor: pointer;
-          transition: all 0.2s;
+          transition: all 0.15s;
           min-height: 36px;
           display: flex;
           align-items: center;
@@ -1889,227 +1821,166 @@ export default function AshleyDealCalculator() {
           color: var(--text);
         }
         .pill-compact.selected {
-          background: var(--crimson);
-          border-color: var(--crimson);
+          background: var(--primary);
+          border-color: var(--primary);
           color: white;
-          box-shadow: 0 0 8px var(--crimson-glow);
         }
 
-        /* Select dropdown for item types */
-        .select-input {
-          width: 100%;
-          padding: 10px 14px;
-          border: 2px solid var(--line);
-          border-radius: 10px;
-          font-size: 14px;
-          background: var(--bg);
-          color: var(--text);
-          cursor: pointer;
-          transition: all 0.2s;
-          appearance: none;
-          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23E23744' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-          background-repeat: no-repeat;
-          background-position: right 12px center;
-        }
-        .select-input:focus {
-          outline: none;
-          border-color: var(--crimson);
-          box-shadow: 0 0 0 3px var(--crimson-glow);
-        }
-
-        /* Compact item card */
+        /* Flat item card (2-row layout) */
         .item-card-compact {
           background: var(--surface-2);
           border: 1px solid var(--line);
-          border-radius: 12px;
-          padding: 12px;
-          margin-bottom: 10px;
-          overflow: hidden;
+          border-left: 3px solid var(--primary);
+          border-radius: var(--radius-sm);
+          padding: 8px;
+          margin-bottom: 8px;
+          transition: box-shadow 0.15s;
         }
-        .item-header-row {
+        .item-card-compact:focus-within {
+          box-shadow: 0 0 0 2px var(--crimson-glow);
+        }
+        .item-row-top {
           display: flex;
           gap: 8px;
           align-items: center;
-          margin-bottom: 10px;
-          flex-wrap: wrap;
+          margin-bottom: 8px;
         }
-        .item-number-badge {
-          background: var(--crimson);
-          color: white;
-          font-size: 11px;
-          font-weight: 700;
-          padding: 4px 8px;
-          border-radius: 6px;
-          white-space: nowrap;
+        .item-row-bottom {
+          display: flex;
+          gap: 8px;
+          align-items: center;
         }
         .input-qty-compact {
-          width: 56px;
-          padding: 8px 10px;
-          border: 2px solid var(--line);
-          border-radius: 8px;
-          font-size: 14px;
+          width: 44px;
+          padding: 6px 4px;
+          border: 1px solid var(--line);
+          border-radius: var(--radius-sm);
+          font-size: var(--text-sm);
           text-align: center;
           background: var(--bg);
           color: var(--text);
+          min-height: 36px;
         }
         .input-qty-compact:focus {
           outline: none;
           border-color: var(--crimson);
-          box-shadow: 0 0 0 3px var(--crimson-glow);
+          box-shadow: 0 0 0 2px var(--crimson-glow);
         }
-        .remove-btn-compact {
-          background: rgba(248,113,113,0.15);
-          border: 1px solid rgba(248,113,113,0.3);
-          color: var(--danger);
-          font-size: 18px;
-          cursor: pointer;
-          padding: 6px 10px;
-          border-radius: 8px;
-          min-width: 36px;
-          min-height: 36px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transition: all 0.2s;
-        }
-        .remove-btn-compact:hover {
-          background: rgba(248,113,113,0.25);
-        }
-        .input-row-compact {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .input-group-compact {
-          width: 100%;
-        }
-        .input-label-mini {
-          font-size: 10px;
+        .item-remove-btn {
+          background: none;
+          border: none;
           color: var(--muted);
-          margin-bottom: 4px;
-          display: block;
-          text-transform: uppercase;
-          letter-spacing: 0.3px;
+          font-size: 16px;
+          cursor: pointer;
+          padding: 4px 8px;
+          border-radius: var(--radius-sm);
+          transition: all 0.15s;
+          flex-shrink: 0;
+          line-height: 1;
         }
-        .input-with-wheel {
-          display: flex;
-          gap: 4px;
+        .item-remove-btn:hover {
+          color: var(--danger);
+          background: rgba(248,113,113,0.12);
         }
         .input-compact {
           flex: 1;
-          padding: 10px 12px;
-          border: 2px solid var(--line);
-          border-radius: 8px;
-          font-size: 15px;
-          min-height: 42px;
+          padding: 8px 12px;
+          border: 1px solid var(--line);
+          border-radius: var(--radius-sm);
+          font-size: var(--text-sm);
+          min-height: 36px;
           background: var(--bg);
           color: var(--text);
+          min-width: 0;
         }
         .input-compact:focus {
           outline: none;
           border-color: var(--crimson);
-          box-shadow: 0 0 0 3px var(--crimson-glow);
+          box-shadow: 0 0 0 2px var(--crimson-glow);
         }
-        .wheel-btn-compact {
-          width: 42px;
-          height: 42px;
-          background: var(--surface);
-          border: 2px solid var(--line);
-          border-radius: 8px;
-          font-size: 16px;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          transition: all 0.2s;
-          color: var(--text);
-        }
-        .wheel-btn-compact:active {
+        .input-compact::placeholder { color: var(--muted); }
+        .item-estimate-btn {
           background: var(--glass);
-          border-color: var(--crimson);
-        }
-        .estimate-link-btn {
-          background: none;
-          border: none;
-          color: var(--crimson);
-          font-size: 11px;
-          font-weight: 600;
+          border: 1px solid var(--line);
+          color: var(--primary);
+          font-size: var(--text-xs);
+          font-weight: 700;
           cursor: pointer;
-          padding: 4px 0 0 0;
-          text-decoration: underline;
-          text-underline-offset: 2px;
-          text-align: left;
-          transition: color 0.2s;
+          padding: 6px 8px;
+          border-radius: var(--radius-sm);
+          transition: all 0.15s;
+          flex-shrink: 0;
+          line-height: 1;
         }
-        .estimate-link-btn:active {
-          color: var(--primary-strong);
+        .item-estimate-btn:hover {
+          background: rgba(226,55,68,0.1);
+          border-color: var(--primary);
         }
 
         /* Toggle compact */
         .toggle-compact {
-          width: 48px;
-          height: 28px;
+          width: 44px;
+          height: 24px;
           background: var(--surface-2);
           border: 1px solid var(--line);
-          border-radius: 14px;
+          border-radius: 12px;
           position: relative;
           cursor: pointer;
-          transition: all 0.2s;
+          transition: all 0.15s;
           flex-shrink: 0;
         }
         .toggle-compact.on { 
-          background: var(--crimson);
-          border-color: var(--crimson);
-          box-shadow: 0 0 8px var(--crimson-glow);
+          background: var(--primary);
+          border-color: var(--primary);
         }
         .toggle-compact::after {
           content: '';
           position: absolute;
           top: 2px;
           left: 2px;
-          width: 24px;
-          height: 24px;
+          width: 20px;
+          height: 20px;
           background: white;
           border-radius: 50%;
-          transition: transform 0.2s;
+          transition: transform 0.15s;
           box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
         .toggle-compact.on::after { transform: translateX(20px); }
 
         /* Micro-interactions */
-        .pill, .mode-tab, .card, .pill-compact {
-          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        .pill, .mode-tab, .card, .pill-compact, .setting-chip {
+          transition: all 0.15s ease;
         }
-        .pill:hover, .pill-compact:hover, .mode-tab:hover {
+        .pill:hover, .mode-tab:hover, .setting-chip:hover {
           transform: translateY(-1px);
         }
-        .pill:active, .pill-compact:active, .mode-tab:active {
+        .pill:active, .pill-compact:active, .mode-tab:active, .setting-chip:active {
           transform: translateY(0);
         }
 
         /* Enhanced calculate button */
         .calc-btn-enhanced {
           width: 100%;
-          padding: 16px;
+          padding: 14px;
           background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
           border: none;
-          border-radius: 14px;
+          border-radius: var(--radius-md);
           color: white;
-          font-size: 17px;
+          font-size: var(--text-md);
           font-weight: 700;
           cursor: pointer;
-          box-shadow: 0 8px 22px var(--crimson-glow), 0 4px 12px rgba(0,0,0,0.3);
-          min-height: 56px;
-          transition: all 0.2s;
+          font-family: var(--font-body);
+          box-shadow: 0 4px 14px var(--crimson-glow), 0 2px 8px rgba(0,0,0,0.3);
+          min-height: 48px;
+          transition: all 0.15s;
         }
         .calc-btn-enhanced:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 10px 28px var(--crimson-glow), 0 6px 16px rgba(0,0,0,0.4);
+          transform: translateY(-1px);
+          box-shadow: 0 6px 18px var(--crimson-glow), 0 4px 12px rgba(0,0,0,0.4);
         }
         .calc-btn-enhanced:active {
           transform: translateY(0);
-          box-shadow: 0 4px 12px var(--crimson-glow);
+          box-shadow: 0 2px 8px var(--crimson-glow);
         }
         .calc-btn-enhanced:disabled {
           background: var(--surface-2);
@@ -2149,311 +2020,10 @@ export default function AshleyDealCalculator() {
           to { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
 
-        /* Warm craft overrides */
-        .header {
-          position: sticky;
-          top: 10px;
-          z-index: 40;
-          background: linear-gradient(135deg, #6f5036 0%, #8a6341 100%);
-          padding: 14px 16px;
-          margin: 0 0 16px 0;
-          border-radius: var(--radius-lg);
-          box-shadow: var(--shadow-soft);
-          border: 1px solid rgba(255,255,255,0.15);
-        }
-        .header h1 {
-          margin: 0;
-          font-size: 20px;
-          color: #fffaf4;
-          font-weight: 700;
-          font-family: var(--font-display);
-          letter-spacing: 0.3px;
-        }
-        .header p {
-          margin: 2px 0 0;
-          font-size: 11px;
-          color: rgba(255,255,255,0.85);
-        }
-        .header-menu-btn,
-        .header-reset-btn {
-          background: rgba(255,255,255,0.18);
-          border: 1px solid rgba(255,255,255,0.2);
-          width: var(--tap);
-          height: var(--tap);
-          border-radius: 12px;
-          font-size: 18px;
-          color: white;
-        }
-        .header-menu {
-          border-radius: 14px;
-          border: 1px solid var(--line);
-          box-shadow: var(--shadow-card);
-        }
-
-        .mode-tabs {
-          display: flex;
-          background: var(--surface);
-          border-radius: 16px;
-          padding: 4px;
-          margin-bottom: 14px;
-          border: 1px solid var(--line);
-          box-shadow: var(--shadow-card);
-        }
-        .mode-tab {
-          min-height: var(--tap);
-          border-radius: 12px;
-          font-size: 13px;
-          font-weight: 600;
-          color: var(--muted);
-        }
-        .mode-tab.active {
-          background: var(--primary);
-          color: white;
-        }
-        .mode-hint {
-          font-size: 12px;
-          color: var(--muted);
-        }
-        .mini-guide {
-          background: var(--surface-2);
-          border: 1px solid #ecd9c2;
-          border-radius: 14px;
-          margin-bottom: 16px;
-          box-shadow: var(--shadow-card);
-          overflow: hidden;
-        }
-        .mini-guide-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 14px;
-          cursor: pointer;
-          user-select: none;
-          transition: background 0.15s;
-        }
-        .mini-guide-header:hover {
-          background: var(--surface-3);
-        }
-        .mini-guide-title {
-          font-size: 13px;
-          font-weight: 700;
-          color: var(--primary);
-          font-family: var(--font-display);
-        }
-        .mini-guide-chevron {
-          font-size: 12px;
-          color: var(--primary);
-          transition: transform 0.2s;
-        }
-        .mini-guide-chevron.open {
-          transform: rotate(180deg);
-        }
-        .mini-guide-content {
-          padding: 0 14px 14px 14px;
-        }
-        .card {
-          background: var(--surface);
-          border-radius: var(--radius-lg);
-          padding: 18px;
-          margin-bottom: 14px;
-          box-shadow: var(--shadow-card);
-          border: 1px solid var(--line);
-        }
-        .card-title {
-          font-size: 14px;
-          font-weight: 700;
-          color: var(--primary-strong);
-          font-family: var(--font-display);
-        }
-        .section-hint,
-        .setting-hint,
-        .input-hint {
-          color: var(--muted);
-        }
-
-        .pill,
-        .pill-compact {
-          border-color: var(--line);
-          color: var(--muted);
-          min-height: var(--tap);
-        }
-        .pill.selected,
-        .pill-compact.selected {
-          background: var(--primary);
-          border-color: var(--primary);
-          color: white;
-        }
-        .toggle.on,
-        .toggle-compact.on {
-          background: var(--primary);
-        }
-
-        .input,
-        .input-compact,
-        .input-qty-compact {
-          border-color: var(--line);
-          background: var(--bg);
-          color: var(--text);
-          min-height: var(--tap);
-        }
-        .input:focus,
-        .input-compact:focus,
-        .input-qty-compact:focus,
-        .select-input:focus {
-          border-color: var(--crimson);
-          box-shadow: 0 0 0 3px var(--crimson-glow);
-        }
-        .select-input {
-          border-color: var(--line);
-          background-color: var(--bg);
-        }
-        .input-error {
-          border-color: var(--danger);
-          box-shadow: 0 0 0 3px rgba(248,113,113,0.15);
-        }
-        .error-text {
-          color: var(--danger);
-          font-size: 12px;
-          margin-top: 6px;
-          margin-bottom: 6px;
-          font-weight: 600;
-        }
-
-        .item-card-compact {
-          background: var(--surface-2);
-          border: 1px solid var(--line);
-        }
-        .item-number-badge {
-          background: var(--crimson);
-        }
-        .remove-btn-compact {
-          min-width: var(--tap);
-          min-height: var(--tap);
-        }
-
-        .add-item-btn {
-          min-height: var(--tap);
-          border-color: var(--line);
-          color: var(--crimson);
-        }
-
-        .sticky-bottom {
-          padding-bottom: calc(16px + env(safe-area-inset-bottom));
-          background: linear-gradient(to top, var(--bg-deep) 65%, transparent);
-        }
-        .calc-btn-enhanced {
-          background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
-          box-shadow: 0 8px 22px var(--crimson-glow), 0 4px 12px rgba(0,0,0,0.3);
-          min-height: 56px;
-        }
-
-        .result-overlay {
-          align-items: flex-end;
-          padding: 0;
-          background: rgba(15, 17, 23, 0.8);
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-        }
-        .result-card {
-          width: 100%;
-          max-width: 520px;
-          border-radius: 20px 20px 0 0;
-          margin: 0 auto;
-          padding: 0;
-          box-shadow: 0 -12px 30px rgba(0,0,0,0.4);
-          border: 1px solid var(--line);
-          overflow: hidden;
-          animation: sheetUp 0.22s ease-out;
-        }
-        .sheet-handle {
-          width: 42px;
-          height: 5px;
-          background: var(--line);
-          border-radius: 999px;
-          margin: 8px auto 6px;
-        }
-        .sheet-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding: 10px 16px 0;
-          border-bottom: 2px solid var(--crimson);
-        }
-        .sheet-title {
-          font-size: 16px;
-          font-weight: 700;
-          color: var(--text);
-        }
-        .sheet-close {
-          background: var(--glass);
-          border: 1px solid var(--line);
-          border-radius: 10px;
-          min-width: 40px;
-          min-height: 40px;
-          font-size: 12px;
-          font-weight: 600;
-          color: var(--text);
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-        .sheet-close:hover {
-          background: var(--surface-2);
-          border-color: var(--crimson);
-        }
-        .sheet-content {
-          padding: 12px 16px 20px;
-          max-height: 78vh;
-          overflow: auto;
-          padding-bottom: calc(20px + env(safe-area-inset-bottom));
-          background: var(--surface);
-        }
-        @keyframes sheetUp {
-          from { transform: translateY(20%); opacity: 0; }
-          to { transform: translateY(0); opacity: 1; }
-        }
-
-        .big-total {
-          border-radius: 14px;
-          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2);
-        }
-        .section-title {
-          color: var(--crimson);
-        }
-        .margin-item {
-          border: 1px solid var(--line);
-          background: var(--surface-2);
-        }
-        .margin-price-box {
-          min-height: 52px;
-        }
-
-        details.result-section {
-          border: 1px solid var(--line);
-          border-radius: 14px;
-          padding: 10px 12px;
-          margin: 12px 0;
-          background: var(--surface-2);
-        }
-        details.result-section summary {
-          list-style: none;
-          cursor: pointer;
-          font-size: 13px;
-          font-weight: 700;
-          color: var(--text);
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          min-height: var(--tap);
-        }
-        details.result-section summary::-webkit-details-marker { display: none; }
-        .summary-chevron {
-          font-size: 12px;
-          color: var(--muted);
-        }
-
         @media (prefers-reduced-motion: reduce) {
           * { animation: none !important; transition: none !important; }
         }
+
       `}</style>
 
       <div className="container">
@@ -2482,207 +2052,137 @@ export default function AshleyDealCalculator() {
                 className="header-menu-item"
                 onClick={() => { setShowHistory(true); setMenuOpen(false); }}
               >
-                🕓 History {history.length > 0 && `(${history.length})`}
-              </button>
-              <button
-                className="header-menu-item"
-                onClick={() => { startHelper(); setMenuOpen(false); }}
-              >
-                💡 Guide
+                History {history.length > 0 && `(${history.length})`}
               </button>
               <button
                 className="header-menu-item"
                 onClick={() => { setShowHelp(true); setMenuOpen(false); }}
               >
-                ❓ Help
+                Help
               </button>
             </div>
           )}
         </div>
 
-        {/* Mode Tabs - Compact Labels */}
+        {/* Mode Tabs */}
         <div className="mode-tabs">
-          <button
-            className={`mode-tab ${mode === 'quote' ? 'active' : ''}`}
-            onClick={() => setMode('quote')}
-          >
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-              <span style={{ fontSize: 16 }}>💵</span>
-              <span style={{ fontSize: 12 }}>Quote</span>
-            </span>
-          </button>
-          <button
-            className={`mode-tab ${mode === 'margin' ? 'active' : ''}`}
-            onClick={() => setMode('margin')}
-          >
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-              <span style={{ fontSize: 16 }}>📊</span>
-              <span style={{ fontSize: 12 }}>Margin</span>
-            </span>
-          </button>
-          <button
-            className={`mode-tab ${mode === 'otd' ? 'active' : ''}`}
-            onClick={() => setMode('otd')}
-          >
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-              <span style={{ fontSize: 16 }}>🎯</span>
-              <span style={{ fontSize: 12 }}>OTD</span>
-            </span>
-          </button>
+          <button className={`mode-tab ${mode === 'quote' ? 'active' : ''}`} onClick={() => setMode('quote')}>Quote</button>
+          <button className={`mode-tab ${mode === 'margin' ? 'active' : ''}`} onClick={() => setMode('margin')}>Margin</button>
+          <button className={`mode-tab ${mode === 'otd' ? 'active' : ''}`} onClick={() => setMode('otd')}>OTD</button>
         </div>
 
-        <div className="mode-hint">
-          Pick one: Quote = total. Margin = profit check. OTD = customer offer.
-        </div>
-
-        <div className="mini-guide">
-          <div
-            className="mini-guide-header"
-            onClick={() => setGuideExpanded(!guideExpanded)}
-          >
-            <div className="mini-guide-title">{currentGuide.title}</div>
-            <span className={`mini-guide-chevron ${guideExpanded ? 'open' : ''}`}>▼</span>
-          </div>
-          {guideExpanded && (
-            <div className="mini-guide-content">
-              {currentGuide.steps.map((step, index) => (
-                <div key={`${currentGuide.title}-${index}`} className="mini-guide-row">
-                  {index + 1}. {step}
-                </div>
-              ))}
-              {currentGuide.example && (
-                <div className="mini-guide-example">Example: {currentGuide.example}</div>
-              )}
-              {currentGuide.mistake && (
-                <div className="mini-guide-mistake">Common mistake: {currentGuide.mistake}</div>
-              )}
-              {currentGuide.note && (
-                <div className="mini-guide-note">{currentGuide.note}</div>
-              )}
-            </div>
+        {/* Settings Chip Bar */}
+        <div className="settings-bar">
+          {mode !== 'otd' && (
+            <button className="setting-chip" onClick={cycleNextSalePercent}>{salePercent}%</button>
           )}
+          <button
+            className={`setting-chip ${priceType === 'tag' ? 'active' : ''}`}
+            onClick={() => setPriceType(priceType === 'sale' ? 'tag' : 'sale')}
+          >
+            {priceType === 'tag' ? 'Retail' : 'Sale'}
+          </button>
+          {mode !== 'otd' && (
+            <button
+              className={`setting-chip ${noTaxPromo ? 'active' : ''}`}
+              onClick={() => setNoTaxPromo(!noTaxPromo)}
+            >
+              No-Tax
+            </button>
+          )}
+          <button className="setting-chip" onClick={cycleNextDelivery}>
+            ${delivery}
+          </button>
+          {mode !== 'otd' && (
+            <button
+              className={`setting-chip ${includeProtection ? 'active' : ''}`}
+              onClick={() => setIncludeProtection(!includeProtection)}
+            >
+              Plan {includeProtection ? 'ON' : 'OFF'}
+            </button>
+          )}
+          <button className="setting-chip gear" onClick={() => setShowSettingsModal(true)}>⚙</button>
         </div>
 
-        {/* Settings Accordion */}
-        <div className="settings-accordion">
-          <div
-            className="settings-accordion-header"
-            onClick={() => setSettingsExpanded(!settingsExpanded)}
-          >
-            <div className="settings-accordion-title">
-              ⚙️ Deal Settings
-              <span className="setting-preview">
-                {mode !== 'otd' && `${salePercent}%`} • {noTaxPromo ? 'No-Tax' : 'Tax'} • ${delivery}
-              </span>
-            </div>
-            <span className={`settings-accordion-chevron ${settingsExpanded ? 'open' : ''}`}>▼</span>
-          </div>
-
-          {settingsExpanded && (
-            <div className="settings-grid">
-              {/* Sale % - only show if not OTD mode */}
-              {mode !== 'otd' && (
-                <div className="setting-compact">
-                  <label className="setting-label">Sale %</label>
-                  <div className="setting-hint">Most deals use 30%.</div>
+        {/* Settings Modal */}
+        {showSettingsModal && (
+          <div className="help-overlay" onClick={() => setShowSettingsModal(false)}>
+            <div className="help-modal" onClick={e => e.stopPropagation()}>
+              <h2>Deal Settings</h2>
+              <div className="settings-modal-content">
+                {mode !== 'otd' && (
+                  <div className="setting-group">
+                    <label>Sale %</label>
+                    <div className="pill-group-compact">
+                      {salePercentOptions.map(pct => (
+                        <div key={pct} className={`pill-compact ${salePercent === pct ? 'selected' : ''}`} onClick={() => setSalePercent(pct)}>{pct}%</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className="setting-group">
+                  <label>Price Type</label>
                   <div className="pill-group-compact">
-                    {[30, 35, 40].map(pct => (
-                      <div
-                        key={pct}
-                        className={`pill-compact ${salePercent === pct ? 'selected' : ''}`}
-                        onClick={() => setSalePercent(pct)}
-                      >
-                        {pct}%
-                      </div>
+                    <div className={`pill-compact ${priceType === 'sale' ? 'selected' : ''}`} onClick={() => setPriceType('sale')}>Sale</div>
+                    <div className={`pill-compact ${priceType === 'tag' ? 'selected' : ''}`} onClick={() => setPriceType('tag')}>Retail</div>
+                  </div>
+                </div>
+                {mode !== 'otd' && (
+                  <div className="setting-group">
+                    <label>No-Tax Promo</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div className={`toggle-compact ${noTaxPromo ? 'on' : ''}`} onClick={() => setNoTaxPromo(!noTaxPromo)} />
+                      <span style={{ fontSize: 11, color: noTaxPromo ? colors.success.main : colors.text.secondary }}>{noTaxPromo ? 'ON' : 'OFF'}</span>
+                    </div>
+                  </div>
+                )}
+                <div className="setting-group">
+                  <label>Delivery</label>
+                  <div className="pill-group-compact">
+                    {deliveryOptions.map(amt => (
+                      <div key={amt} className={`pill-compact ${delivery === amt && !showCustomDelivery ? 'selected' : ''}`} onClick={() => { setDelivery(amt); setShowCustomDelivery(false); }}>${amt}</div>
                     ))}
+                    <div className={`pill-compact ${showCustomDelivery ? 'selected' : ''}`} onClick={() => setShowCustomDelivery(true)}>Custom</div>
                   </div>
+                  {showCustomDelivery && (
+                    <input
+                      type="text"
+                      className="input-compact"
+                      placeholder="Enter amount"
+                      value={delivery}
+                      onChange={(e) => setDelivery(e.target.value)}
+                      inputMode="decimal"
+                      style={{ marginTop: 6 }}
+                      autoFocus
+                    />
+                  )}
                 </div>
-              )}
-
-              {/* Price Type - only for quote and margin modes */}
-              {(mode === 'quote' || mode === 'margin') && (
-                <div className="setting-compact">
-                  <label className="setting-label">Price Type</label>
-                  <div className="setting-hint">Sale = after discount. Retail = tag price.</div>
-                  <div className="pill-group-compact">
-                    <div
-                      className={`pill-compact ${priceType === 'sale' ? 'selected' : ''}`}
-                      onClick={() => setPriceType('sale')}
-                    >
-                      Sale
+                {mode !== 'otd' && (
+                  <div className="setting-group full-width">
+                    <label>Protection Plan</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div className={`toggle-compact ${includeProtection ? 'on' : ''}`} onClick={() => setIncludeProtection(!includeProtection)} />
+                      <span style={{ fontSize: 11, color: includeProtection ? colors.success.main : colors.text.secondary }}>
+                        {includeProtection ? `ON — ${formatMoney(calculateProtectionPlan(subtotal || 0))} added` : 'OFF'}
+                      </span>
                     </div>
-                    <div
-                      className={`pill-compact ${priceType === 'tag' ? 'selected' : ''}`}
-                      onClick={() => setPriceType('tag')}
-                    >
-                      Retail
-                    </div>
+                    {includeProtection && (
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                        $150 (0–1k) · $200 (1–2k) · $250 (2–3k) · $300 (3–4k) · $350 (4–5k) · $500 (5–6k) · +$50/1k after
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
-
-              {/* No-Tax Promo */}
-              <div className="setting-compact">
-                <label className="setting-label">No-Tax Promo</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div
-                    className={`toggle-compact ${noTaxPromo ? 'on' : ''}`}
-                    onClick={() => setNoTaxPromo(!noTaxPromo)}
-                  />
-                  <span style={{ fontSize: 11, color: noTaxPromo ? colors.success.main : colors.text.secondary }}>
-                    {noTaxPromo ? 'ON' : 'OFF'}
-                  </span>
-                </div>
-                <div className="setting-hint">Same total. Just how you say it.</div>
+                )}
               </div>
-
-              {/* Delivery */}
-              <div className="setting-compact">
-                <label className="setting-label">Delivery</label>
-                <div className="setting-hint">Delivery is always taxed.</div>
-                <div className="pill-group-compact">
-                  <div
-                    className={`pill-compact ${delivery === '0' ? 'selected' : ''}`}
-                    onClick={() => setDelivery('0')}
-                  >
-                    $0
-                  </div>
-                  {['100', '135', '150'].map(amt => (
-                    <div
-                      key={amt}
-                      className={`pill-compact ${delivery === amt ? 'selected' : ''}`}
-                      onClick={() => setDelivery(amt)}
-                    >
-                      ${amt}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Protection Plan */}
-              <div className="setting-compact" style={{ gridColumn: '1 / -1' }}>
-                <label className="setting-label">Protection Plan</label>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div
-                    className={`toggle-compact ${includeProtection ? 'on' : ''}`}
-                    onClick={() => setIncludeProtection(!includeProtection)}
-                  />
-                  <span style={{ fontSize: 11, color: includeProtection ? colors.success.main : colors.text.secondary }}>
-                    {includeProtection
-                      ? `ON — ${formatMoney(calculateProtectionPlan(subtotal || 0))} added`
-                      : 'OFF'}
-                  </span>
-                </div>
-                <div className="setting-hint">Tiered: $150–$500+ based on merch total.</div>
-              </div>
+              <button className="help-close" onClick={() => setShowSettingsModal(false)}>Done</button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* OTD Price Input */}
         {mode === 'otd' && (
           <div className="card">
-            <div className="card-title">🎯 Customer's OTD Offer</div>
+            <div className="card-title">Customer's OTD Offer</div>
             <input
               type="text"
               className={`input ${errors.otdPrice ? 'input-error' : ''}`}
@@ -2693,7 +2193,7 @@ export default function AshleyDealCalculator() {
                 clearError('otdPrice');
               }}
               inputMode="decimal"
-              style={{ fontSize: '20px', fontWeight: '600' }}
+              style={{ fontSize: '22px', fontWeight: '700' }}
             />
             <div style={{ marginTop: '8px', fontSize: '12px', color: colors.text.secondary }}>
               Enter customer total offer (tax + delivery included)
@@ -2704,170 +2204,127 @@ export default function AshleyDealCalculator() {
           </div>
         )}
 
-        {/* Items - Compact Layout */}
-        <div className="card" style={{ padding: 14 }}>
-          <div className="card-title" style={{ marginBottom: 10 }}>
-            {mode === 'otd' ? 'Items (Landing Cost Only)' : 'Items'}
-          </div>
-          <div className="section-hint">
-            {mode === 'otd'
-              ? 'Only landing cost is needed in OTD mode.'
-              : 'Add items and prices. Name is optional.'}
-          </div>
-          {errors.price && (
-            <div className="error-text">{errors.price}</div>
-          )}
-          {errors.landingCost && (
-            <div className="error-text">{errors.landingCost}</div>
-          )}
+        {/* Items */}
+        <div className="card" style={{ padding: 8 }}>
+          {errors.price && <div className="error-text" style={{ paddingLeft: 4 }}>{errors.price}</div>}
+          {errors.landingCost && <div className="error-text" style={{ paddingLeft: 4 }}>{errors.landingCost}</div>}
 
-          {items.map((item, index) => (
+          {items.map((item) => (
             <div key={item.id} className="item-card-compact" data-item>
-              {/* Header Row: Badge, Dropdown/Custom, Qty, Remove */}
-              <div className="item-header-row">
-                <span className="item-number-badge">#{index + 1}</span>
-
+              {/* Row 1: Type pills + Price + Qty */}
+              <div className="item-row-top">
                 {showCustomInput[item.id] ? (
                   <input
                     type="text"
                     className="input-compact"
-                    placeholder="Enter item name..."
+                    placeholder="Item name..."
                     value={item.name}
                     onChange={(e) => updateItem(item.id, 'name', e.target.value)}
                     autoFocus
                     style={{ flex: 1 }}
                   />
                 ) : (
-                  <select
-                    className="select-input"
-                    style={{ flex: 1 }}
-                    value={
-                      item.name === '' ? '' :
-                      TOP_ITEM_PRESETS.includes(item.name) || MORE_ITEM_PRESETS.includes(item.name)
-                        ? item.name
-                        : 'custom'
-                    }
-                    onChange={(e) => {
-                      if (e.target.value === 'custom') {
-                        setShowCustomInput({ ...showCustomInput, [item.id]: true });
-                      } else {
-                        setShowCustomInput({ ...showCustomInput, [item.id]: false });
-                        updateItem(item.id, 'name', e.target.value);
-                      }
-                    }}
-                  >
-                    <option value="">Select type...</option>
-                    <optgroup label="Common">
-                      {TOP_ITEM_PRESETS.map(preset => (
-                        <option key={preset} value={preset}>{preset}</option>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: expandedMore[item.id] ? 6 : 0 }}>
+                      {TOP_ITEM_PRESETS.map(p => (
+                        <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => updateItem(item.id, 'name', p)} style={{ fontSize: 11 }}>{p}</button>
                       ))}
-                    </optgroup>
-                    <optgroup label="More Options">
-                      {MORE_ITEM_PRESETS.map(preset => (
-                        <option key={preset} value={preset}>{preset}</option>
-                      ))}
-                    </optgroup>
-                    <option value="custom">✏️ Custom...</option>
-                  </select>
+                      <button className={`pill-compact${expandedMore[item.id] ? ' selected' : ''}`} onClick={() => setExpandedMore({ ...expandedMore, [item.id]: !expandedMore[item.id] })} style={{ fontSize: 11 }}>{expandedMore[item.id] ? 'Less ▲' : 'More ▼'}</button>
+                      <button className={`pill-compact${!TOP_ITEM_PRESETS.includes(item.name) && !MORE_ITEM_PRESETS.includes(item.name) && item.name !== '' ? ' selected' : ''}`} onClick={() => setShowCustomInput({ ...showCustomInput, [item.id]: true })} style={{ fontSize: 11 }}>Custom</button>
+                    </div>
+                    {expandedMore[item.id] && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {MORE_ITEM_PRESETS.map(p => (
+                          <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedMore({ ...expandedMore, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 )}
-
+                {mode !== 'otd' && (
+                  <input
+                    type="text"
+                    className={`input-compact ${errors.price ? 'input-error' : ''}`}
+                    placeholder={noTaxPromo ? 'Price+tax' : 'Price'}
+                    value={item.price}
+                    onChange={(e) => updateItemPrice(item.id, e.target.value)}
+                    inputMode="decimal"
+                    style={{ width: 90, flex: 'none' }}
+                  />
+                )}
                 <input
                   type="number"
                   className="input-qty-compact"
                   value={item.qty}
                   onChange={(e) => updateItem(item.id, 'qty', e.target.value)}
                   min="1"
-                  placeholder="Qty"
+                  placeholder="1"
+                  title="Quantity"
                 />
-
-                {items.length > 1 && (
-                  <button className="remove-btn-compact" onClick={() => removeItem(item.id)}>×</button>
-                )}
               </div>
-
-              <div className="item-hints-row">
-                <span>Name optional.</span>
-                <span>Qty = how many.</span>
-              </div>
-
-              {/* Show custom name if custom is selected */}
-              {showCustomInput[item.id] && (
-                <button
-                  onClick={() => {
-                    setShowCustomInput({ ...showCustomInput, [item.id]: false });
-                    if (!item.name) updateItem(item.id, 'name', '');
-                  }}
-                  style={{
-                    background: colors.primary[100],
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '6px 10px',
-                    fontSize: '11px',
-                    color: colors.text.secondary,
-                    cursor: 'pointer',
-                    marginBottom: 8,
-                  }}
-                >
-                  ← Back to presets
-                </button>
-              )}
-
-              {/* Price Inputs Row */}
-              <div className="input-row-compact">
-                {mode !== 'otd' && (
-                  <div className="input-group-compact">
-                    <label className="input-label-mini">
-                      {noTaxPromo ? 'Price (w/tax)' : 'Price'}
-                    </label>
-                    <div className="input-hint">
-                      {noTaxPromo
-                        ? 'Enter customer price with tax.'
-                        : priceType === 'tag'
-                          ? 'Enter tag price from the label.'
-                          : 'Enter sale price after discount.'}
-                    </div>
+              {/* Row 2: Landing + Estimate + Remove + Back */}
+              <div className="item-row-bottom">
+                {mode !== 'quote' && (
+                  <>
                     <input
                       type="text"
-                      className={`input-compact ${errors.price ? 'input-error' : ''}`}
-                      placeholder="$0.00"
-                      value={item.price}
-                      onChange={(e) => updateItemPrice(item.id, e.target.value)}
+                      className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
+                      placeholder="Landing $"
+                      value={item.landingCost}
+                      onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
                       inputMode="decimal"
+                      ref={mode === 'otd' ? (el) => { if (el) el._itemId = item.id; } : null}
+                      style={{ flex: 1 }}
                     />
-                  </div>
+                    <button className="item-estimate-btn" onClick={() => estimateLandingCost(item.id)} title="Estimate landing cost (price ÷ 3.3)">~</button>
+                  </>
                 )}
-                <div className="input-group-compact">
-                  <label className="input-label-mini">Landing</label>
-                  <div className="input-hint">Your cost (what Ashley pays).</div>
-                  <input
-                    type="text"
-                    className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
-                    placeholder="$0.00"
-                    value={item.landingCost}
-                    onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
-                    inputMode="decimal"
-                  />
-                  <button
-                    className="estimate-link-btn"
-                    onClick={() => estimateLandingCost(item.id)}
-                  >
-                    Est. from retail ÷ 3.3
-                  </button>
-                </div>
+                {items.length > 1 && (
+                  <button className="item-remove-btn" onClick={() => removeItem(item.id)} title="Remove item">×</button>
+                )}
+                {showCustomInput[item.id] && (
+                  <button className="item-remove-btn" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: false }); if (!item.name) updateItem(item.id, 'name', ''); }} title="Back to presets" style={{ fontSize: 12 }}>↩</button>
+                )}
               </div>
             </div>
           ))}
           
-          <button className="add-item-btn" onClick={addItem}>
-            + Add Another Item
-          </button>
+          <button className="add-item-btn" onClick={addItem}>+ Add Item</button>
         </div>
+
+        {/* Estimate Landing Cost Modal */}
+        {estimateModal.open && (
+          <div className="help-overlay" onClick={() => setEstimateModal({ open: false, itemId: null, retailPrice: '' })}>
+            <div className="help-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '360px' }}>
+              <h2 style={{ marginBottom: 12 }}>Estimate Landing Cost</h2>
+              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--muted)', marginBottom: 12 }}>Enter the full retail price. Landing = retail ÷ 3.3.</p>
+              <input
+                type="text"
+                className="input"
+                placeholder="Full retail price"
+                value={estimateModal.retailPrice}
+                onChange={(e) => setEstimateModal({ ...estimateModal, retailPrice: e.target.value })}
+                inputMode="decimal"
+                autoFocus
+              />
+              {parseMoney(estimateModal.retailPrice) > 0 && (
+                <div style={{ fontSize: 'var(--text-sm)', color: 'var(--success)', fontWeight: 600, marginTop: 8 }}>
+                  Estimated landing: {formatMoney(parseMoney(estimateModal.retailPrice) / 3.3)}
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
+                <button className="help-close" style={{ background: 'var(--surface-2)', color: 'var(--text)', boxShadow: 'none', flex: 1 }} onClick={() => setEstimateModal({ open: false, itemId: null, retailPrice: '' })}>Cancel</button>
+                <button className="help-close" style={{ flex: 1 }} onClick={applyEstimate}>Apply</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Sticky Calculate Button */}
       <div className="sticky-bottom">
         <button className="calc-btn-enhanced" onClick={calculate}>
-          {mode === 'quote' ? '💵 Calculate Quote' : mode === 'margin' ? '📊 Check Margin' : '🎯 Analyze OTD'}
+          {mode === 'quote' ? 'Calculate Quote' : mode === 'margin' ? 'Check Margin' : 'Analyze OTD'}
         </button>
       </div>
 
@@ -2897,13 +2354,13 @@ export default function AshleyDealCalculator() {
                     </div>
 
                     <div style={{ background: colors.success.light, borderRadius: '8px', padding: '12px', marginBottom: '12px', border: `1px solid ${colors.success.main}40` }}>
-                      <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>💬 Tell Customer:</div>
+                      <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>Tell Customer:</div>
                       <div style={{ fontSize: '15px', color: colors.text.primary, fontWeight: 600 }}>
                         "Your total is {formatMoney(customerTotal)} — that includes everything!"
                       </div>
                     </div>
 
-                    <details className="result-section" open>
+                    <details className="result-section">
                       <summary>
                         Invoice Details
                         <span className="summary-chevron">▼</span>
@@ -2942,7 +2399,7 @@ export default function AshleyDealCalculator() {
                       <div className="big-total-sub">+ {formatMoney(totalTax)} tax at register</div>
                     </div>
 
-                    <details className="result-section" open>
+                    <details className="result-section">
                       <summary>
                         Breakdown
                         <span className="summary-chevron">▼</span>
@@ -2988,7 +2445,7 @@ export default function AshleyDealCalculator() {
                     </details>
                     
                     <div style={{ background: colors.success.light, borderRadius: '8px', padding: '12px', marginTop: '12px', border: `1px solid ${colors.success.main}40` }}>
-                      <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>💬 Tell Customer:</div>
+                      <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>Tell Customer:</div>
                       <div style={{ fontSize: '13px', color: colors.text.secondary }}>
                         "{formatMoney(subtotal + deliveryAmount)} plus tax"
                       </div>
@@ -2998,7 +2455,7 @@ export default function AshleyDealCalculator() {
 
                 {/* Copy-Paste Text Block */}
                 <CopyBlock
-                  title="📋 Copy for Text/Notes"
+                  title="Copy for Text/Notes"
                   content={noTaxPromo
                     ? `QUOTE (No-Tax Promo)\n${calculatedItems.map((item, i) => `${item.name || `Item ${i+1}`} x${item.qty}: ${formatMoney(item.quotePrice * item.qty)}`).join('\n')}${deliveryAmount > 0 ? `\nDelivery: ${formatMoney(deliveryAmount + deliveryTax)}` : ''}\nTOTAL: ${formatMoney(customerTotal)}\n\nFor invoice: ${formatMoney(subtotal)} merch${deliveryAmount > 0 ? ` + ${formatMoney(deliveryAmount)} delivery` : ''}`
                     : `QUOTE\n${calculatedItems.map((item, i) => `${item.name || `Item ${i+1}`} x${item.qty}: ${formatMoney(item.lineTotal)}`).join('\n')}\nSubtotal: ${formatMoney(subtotal + deliveryAmount)}\n+ Tax: ${formatMoney(totalTax)}\nTOTAL: ${formatMoney(customerTotal)}`
@@ -3010,28 +2467,24 @@ export default function AshleyDealCalculator() {
             {/* Margin Check Results */}
             {mode === 'margin' && (
               <>
-                {subtotal > 0 ? (
+                {overallMargin !== null ? (
                   <div className="big-total">
-                    <div className="big-total-label">
-                      {noTaxPromo ? 'Quote to Customer' : 'Merchandise Total'}
+                    <div className="big-total-label">Overall Margin</div>
+                    <div className="big-total-amount">{overallMargin.toFixed(1)}%</div>
+                    <div className={`badge ${overallMargin >= 50 ? 'green' : overallMargin >= 47 ? 'orange' : 'red'}`}>
+                      {getMarginLabel(overallMargin)}
                     </div>
-                    <div className="big-total-amount">
-                      {formatMoney(noTaxPromo ? calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0) : subtotal)}
-                    </div>
-                    {!noTaxPromo && (
-                      <div className="big-total-sub">(+ tax at register)</div>
-                    )}
-                    {overallMargin !== null && (
-                      <div className={`badge ${overallMargin >= 50 ? 'green' : overallMargin >= 47 ? 'orange' : 'red'}`}>
-                        {getMarginLabel(overallMargin)} • {overallMargin.toFixed(1)}% margin
+                    {subtotal > 0 && (
+                      <div className="big-total-sub">
+                        {noTaxPromo ? 'Quote: ' + formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0)) : 'Invoice: ' + formatMoney(subtotal)}
                       </div>
                     )}
                   </div>
                 ) : (
                   <div className="big-total">
-                    <div className="big-total-label">Select a Margin Target</div>
-                    <div className="big-total-amount" style={{ fontSize: '24px', color: 'rgba(255,255,255,0.6)' }}>Tap below</div>
-                    <div className="big-total-sub">Choose 50%, 49%, 48%, or 47% to see pricing</div>
+                    <div className="big-total-label">Margin Check</div>
+                    <div className="big-total-amount" style={{ fontSize: '20px', color: 'rgba(255,255,255,0.6)' }}>Enter landing cost</div>
+                    <div className="big-total-sub">Add landing cost to see margin</div>
                   </div>
                 )}
 
@@ -3235,17 +2688,17 @@ export default function AshleyDealCalculator() {
                 </details>
                 {noTaxPromo && subtotal > 0 && (
                   <div style={{ background: colors.success.light, borderRadius: '8px', padding: '12px', marginTop: '12px', border: `1px solid ${colors.success.main}40` }}>
-                    <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>💬 Quote to Customer:</div>
+                    <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>Quote to Customer:</div>
                     <div style={{ fontSize: '15px', color: colors.text.primary, fontWeight: 600 }}>
                       {formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0) + deliveryAmount + deliveryTax)} total
                     </div>
                   </div>
                 )}
 
-                {/* Copy-Paste Text Block */}
+                {/* Copy for Manager */}
                 <CopyBlock
-                  title="📋 Copy for Manager"
-                  content={`MARGIN CHECK\n${calculatedItems.filter(i => i.landingProvided).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)} → Invoice ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '—'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '—'}`).join('\n')}\n\nTotal Landing: ${formatMoney(totalLandingCost)}\nInvoice Total: ${subtotal > 0 ? formatMoney(subtotal) : '—'}\nProfit: ${totalProfit > 0 ? formatMoney(totalProfit) : '—'}\nMARGIN: ${overallMargin !== null ? overallMargin.toFixed(1) + '%' : '—'} ${overallMargin >= 50 ? '✓' : overallMargin >= 47 ? '⚠️' : '✗'}`}
+                  title="Copy for Manager"
+                  content={`MARGIN CHECK\n${calculatedItems.filter(i => i.landingProvided).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)} -> Invoice ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '--'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '--'}`).join('\n')}\n\nLanding Total: ${formatMoney(totalLandingCost)}\nInvoice Total: ${subtotal > 0 ? formatMoney(subtotal) : '--'}\nProfit: ${totalProfit > 0 ? formatMoney(totalProfit) : '--'}\nMARGIN: ${overallMargin !== null ? overallMargin.toFixed(1) + '%' : '--'}`}
                 />
               </>
             )}
@@ -3263,13 +2716,13 @@ export default function AshleyDealCalculator() {
                         : `linear-gradient(135deg, ${colors.error.main} 0%, ${colors.error.dark} 100%)`
                     }}>
                       <div className="big-total-label">
-                        {otdMargin >= 50 ? '✓ APPROVED' : otdMargin >= 47 ? '⚠️ MANAGER OK?' : '✗ TOO LOW'}
+                        {otdMargin >= 50 ? 'APPROVED' : otdMargin >= 47 ? 'MANAGER APPROVAL' : 'TOO LOW'}
                       </div>
                       <div className="big-total-amount">{formatMoney(otdAmount)}</div>
                       <div className="big-total-sub">Customer's OTD offer</div>
                     </div>
 
-                    <details className="result-section" open>
+                    <details className="result-section">
                       <summary>
                         Deal Breakdown
                         <span className="summary-chevron">▼</span>
@@ -3370,7 +2823,7 @@ export default function AshleyDealCalculator() {
 
                 {otdMargin !== null && otdMargin < 47 && (
                   <div className="quick-ref">
-                    <div className="quick-ref-title">⚠️ Below 47% Minimum</div>
+                    <div className="quick-ref-title">Below 47% Minimum</div>
                     <div className="quick-ref-item">
                       Counter with: <strong>{formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</strong> for 47% margin
                     </div>
@@ -3388,10 +2841,10 @@ export default function AshleyDealCalculator() {
                   </div>
                 )}
 
-                {/* Copy-Paste Text Block */}
+                {/* Copy for Manager */}
                 <CopyBlock
-                  title="📋 Copy for Manager"
-                  content={`OTD REQUEST\n${calculatedItems.filter(i => i.landingProvided).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)}`).join('\n')}\nTotal Landing: ${formatMoney(totalLandingCost)}\n\nCustomer Offer: ${formatMoney(otdAmount)} OTD${deliveryAmount > 0 ? `\nDelivery: ${formatMoney(deliveryAmount)} + ${formatMoney(deliveryTax)} tax` : ''}\nSale Price: ${formatMoney(otdSalePrice)}\nProfit: ${formatMoney(otdProfit)}\nMARGIN: ${otdMargin?.toFixed(1)}% ${otdMargin >= 50 ? '✓' : otdMargin >= 47 ? '⚠️' : '✗'}${otdMargin < 47 ? `\n\n⚠️ BELOW 47% - Min OTD: ${formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}` : ''}`}
+                  title="Copy for Manager"
+                  content={`OTD REQUEST\n${calculatedItems.filter(i => i.landingProvided).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)}`).join('\n')}\nLanding Total: ${formatMoney(totalLandingCost)}\n\nCustomer Offer: ${formatMoney(otdAmount)} OTD${deliveryAmount > 0 ? `\nDelivery: ${formatMoney(deliveryAmount)} + ${formatMoney(deliveryTax)} tax` : ''}\nSale Price: ${formatMoney(otdSalePrice)}\nProfit: ${formatMoney(otdProfit)}\nMARGIN: ${otdMargin?.toFixed(1)}%${otdMargin < 47 ? `\n\nBELOW 47% - Min OTD: ${formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}` : ''}`}
                 />
               </>
             )}
@@ -3413,20 +2866,29 @@ export default function AshleyDealCalculator() {
       {showHelp && (
         <div className="help-overlay" onClick={() => setShowHelp(false)}>
           <div className="help-modal" onClick={e => e.stopPropagation()}>
-            <h2>🧭 Simple Guide</h2>
-            
-            <div className="help-section">
-              <h3>✅ Quick Start</h3>
-              <p>Pick one mode:</p>
-              <ul>
-                <li><strong>Quote:</strong> total for the customer</li>
-                <li><strong>Margin:</strong> check profit on a deal</li>
-                <li><strong>OTD:</strong> check a customer offer</li>
-              </ul>
+            <h2>Help</h2>
+
+            {/* Quick Start — mode-specific tips at the top */}
+            <div style={{ background: 'rgba(226,55,68,0.08)', border: '1px solid rgba(226,55,68,0.2)', borderRadius: 'var(--radius-sm)', padding: '12px', marginBottom: '16px' }}>
+              <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--primary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Quick Start — {mode === 'quote' ? 'Quote' : mode === 'margin' ? 'Margin' : 'OTD'} Mode
+              </div>
+              {currentGuide.steps.map((step, i) => (
+                <div key={i} style={{ fontSize: 'var(--text-xs)', color: 'var(--text)', padding: '2px 0' }}>{i + 1}. {step}</div>
+              ))}
+              {currentGuide.example && (
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--muted)', marginTop: 6 }}>Example: {currentGuide.example}</div>
+              )}
+              {currentGuide.mistake && (
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--primary)', marginTop: 4, fontWeight: 600 }}>Watch out: {currentGuide.mistake}</div>
+              )}
+              {currentGuide.note && (
+                <div style={{ fontSize: 'var(--text-xs)', color: 'var(--warning)', marginTop: 4, fontWeight: 700 }}>{currentGuide.note}</div>
+              )}
             </div>
 
             <div className="help-section">
-              <h3>💵 Quote (Fast Total)</h3>
+              <h3>Quote (Fast Total)</h3>
               <ul>
                 <li>Enter tag or sale prices</li>
                 <li>Pick delivery</li>
@@ -3436,7 +2898,7 @@ export default function AshleyDealCalculator() {
             </div>
 
             <div className="help-section">
-              <h3>📊 Margin (Profit Check)</h3>
+              <h3>Margin (Profit Check)</h3>
               <ul>
                 <li>Enter sale price</li>
                 <li>Enter landing cost</li>
@@ -3446,7 +2908,7 @@ export default function AshleyDealCalculator() {
             </div>
 
             <div className="help-section">
-              <h3>🎯 OTD (Customer Offer)</h3>
+              <h3>OTD (Customer Offer)</h3>
               <ul>
                 <li>Enter landing cost</li>
                 <li>Enter customer total offer</li>
@@ -3456,7 +2918,7 @@ export default function AshleyDealCalculator() {
             </div>
 
             <div className="help-section">
-              <h3>🚚 Delivery</h3>
+              <h3>Delivery</h3>
               <ul>
                 <li>Pick $100 / $135 / $150</li>
                 <li>Delivery is always taxed</li>
@@ -3464,7 +2926,7 @@ export default function AshleyDealCalculator() {
             </div>
 
             <div className="help-section">
-              <h3>🏷️ No-Tax Promo</h3>
+              <h3>No-Tax Promo</h3>
               <ul>
                 <li>Same total. Just how you say it</li>
                 <li>No-Tax ON: one tax-included price</li>
@@ -3474,7 +2936,7 @@ export default function AshleyDealCalculator() {
             </div>
 
             <div className="help-section">
-              <h3>❓ FAQ</h3>
+              <h3>FAQ</h3>
               <div className="faq-item">
                 <div className="faq-q">Q: Which mode should I use?</div>
                 <div className="faq-a">A: Quote for totals. Margin for profit. OTD for offers.</div>
@@ -3518,7 +2980,7 @@ export default function AshleyDealCalculator() {
             </div>
 
             <div className="help-section">
-              <h3>📖 Glossary</h3>
+              <h3>Glossary</h3>
               <div className="glossary-item"><strong>Landing cost:</strong> Your cost.</div>
               <div className="glossary-item"><strong>Sale price:</strong> Price before tax.</div>
               <div className="glossary-item"><strong>Quote:</strong> What the customer pays.</div>
@@ -3527,7 +2989,7 @@ export default function AshleyDealCalculator() {
             </div>
 
             <div className="help-section">
-              <h3>🚫 Manager Rule</h3>
+              <h3>Manager Rule</h3>
               <p>Below 47% margin = stop and call manager.</p>
             </div>
 
@@ -3589,7 +3051,7 @@ export default function AshleyDealCalculator() {
       {showHistory && (
         <div className="help-overlay" onClick={() => setShowHistory(false)}>
           <div className="help-modal" onClick={e => e.stopPropagation()}>
-            <h2 style={{ marginBottom: '4px' }}>🕓 Recent Deals</h2>
+            <h2 style={{ marginBottom: '4px' }}>Recent Deals</h2>
             <p style={{ fontSize: '12px', color: colors.text.secondary, marginBottom: '16px' }}>Tap a deal to restore it.</p>
             {history.length === 0 ? (
               <p style={{ fontSize: '14px', color: colors.text.secondary, textAlign: 'center', padding: '24px 0' }}>
@@ -3642,37 +3104,6 @@ export default function AshleyDealCalculator() {
         </div>
       )}
 
-      {/* Helper/Tutorial Overlay */}
-      {helperActive && (
-        <div className="helper-overlay">
-          <div className="helper-card">
-            {/* Progress dots */}
-            <div className="helper-progress">
-              {helperSteps.map((step, index) => (
-                <div
-                  key={step.id}
-                  className={`helper-dot ${index === helperStep ? 'active' : ''} ${index < helperStep ? 'completed' : ''}`}
-                />
-              ))}
-            </div>
-
-            <div className="helper-step-badge">
-              {helperStep + 1} of {helperSteps.length}
-            </div>
-            <div className="helper-title">{helperSteps[helperStep].title}</div>
-            <div className="helper-desc">{helperSteps[helperStep].description}</div>
-
-            <div className="helper-buttons">
-              <button className="helper-btn secondary" onClick={skipHelper}>
-                Skip Tutorial
-              </button>
-              <button className="helper-btn primary" onClick={nextHelperStep}>
-                {helperStep === helperSteps.length - 1 ? 'Got It!' : 'Next →'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Copy Feedback Toast */}
       {copyFeedback && (
