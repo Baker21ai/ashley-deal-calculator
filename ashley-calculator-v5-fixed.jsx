@@ -120,7 +120,10 @@ export default function AshleyDealCalculator() {
     }
   });
 
-  const [mode, setMode] = useState(storedState?.mode ?? 'margin'); // 'quote', 'margin', 'otd'
+  const [mode, setMode] = useState(() => {
+    const saved = storedState?.mode;
+    return saved === 'quote' || saved === 'margin' ? saved : 'margin';
+  });
   const [showHelp, setShowHelp] = useState(false);
   
   // Deal settings
@@ -137,11 +140,6 @@ export default function AshleyDealCalculator() {
   
   // Items
   const [items, setItems] = useState(initialItems);
-  
-  // OTD mode
-  const [otdPrice, setOtdPrice] = useState(
-    storedState?.otdPrice != null ? String(storedState.otdPrice) : ''
-  );
   
   // Results
   const [showResults, setShowResults] = useState(false);
@@ -187,14 +185,13 @@ export default function AshleyDealCalculator() {
         priceType,
         delivery,
         items,
-        otdPrice,
         includeProtection,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       console.error('Failed to save state:', e);
     }
-  }, [mode, salePercent, noTaxPromo, priceType, delivery, items, otdPrice, includeProtection]);
+  }, [mode, salePercent, noTaxPromo, priceType, delivery, items, includeProtection]);
 
   const taxRate = TAX_RATE / 100;
 
@@ -227,15 +224,7 @@ export default function AshleyDealCalculator() {
 
   const calculate = () => {
     const nextErrors = {};
-    if (mode === 'otd') {
-      if (parseMoney(otdPrice) <= 0) {
-        nextErrors.otdPrice = 'Enter the customer OTD offer.';
-      }
-      const hasLanding = items.some(item => String(item.landingCost).trim() !== '');
-      if (!hasLanding) {
-        nextErrors.landingCost = 'Enter landing cost for at least one item.';
-      }
-    } else if (mode === 'margin') {
+    if (mode === 'margin') {
       // Margin Check only requires landing cost (price is optional)
       const hasLanding = items.some(item => String(item.landingCost).trim() !== '');
       if (!hasLanding) {
@@ -266,7 +255,6 @@ export default function AshleyDealCalculator() {
       noTaxPromo,
       priceType,
       salePercent,
-      otdPrice,
       includeProtection,
       items: items.map(i => ({ ...i })),
     };
@@ -322,11 +310,6 @@ export default function AshleyDealCalculator() {
         invoicePrice = salePrice;
         quotePrice = salePrice > 0 ? salePrice * (1 + taxRate) : 0;
       }
-    } else {
-      // OTD mode - price field not really used, landing cost is main input
-      salePrice = priceType === 'sale' ? rawPrice : rawPrice * (1 - discount);
-      invoicePrice = salePrice;
-      quotePrice = salePrice * (1 + taxRate);
     }
     
     const lineTotal = invoicePrice * qty; // lineTotal is always invoice price for calculations
@@ -383,15 +366,6 @@ export default function AshleyDealCalculator() {
     // All other cases: invoice subtotal + all taxes + delivery
     customerTotal = subtotal + taxOnMerchandise + deliveryAmount + deliveryTax + protectionPlanCost;
   }
-
-  // OTD calculations
-  const otdAmount = parseMoney(otdPrice);
-  const otdDeliveryWithTax = deliveryAmount + deliveryTax;
-  const otdMerchandiseWithTax = otdAmount - otdDeliveryWithTax;
-  const otdSalePrice = otdMerchandiseWithTax / (1 + taxRate);
-  const otdMerchandiseTax = otdMerchandiseWithTax - otdSalePrice;
-  const otdMargin = totalLandingCost > 0 ? calculateMargin(otdSalePrice, totalLandingCost) : null;
-  const otdProfit = otdSalePrice - totalLandingCost;
 
   const resetForm = () => setShowResults(false);
   
@@ -489,7 +463,6 @@ export default function AshleyDealCalculator() {
     setPriceType('sale');
     setDelivery(String(DEFAULT_DELIVERY));
     setItems([createEmptyItem(1)]);
-    setOtdPrice('');
     setErrors({});
     setExpandedItemPresets({});
     setShowCustomInput({});
@@ -500,13 +473,13 @@ export default function AshleyDealCalculator() {
 
 
   const restoreFromHistory = (entry) => {
-    setMode(entry.mode);
+    const restoredMode = entry.mode === 'otd' ? 'margin' : (entry.mode || 'margin');
+    setMode(restoredMode);
     setItems(entry.items.map((item, index) => normalizeItem(item, Date.now() + index)));
     setDelivery(String(entry.delivery));
     setNoTaxPromo(entry.noTaxPromo);
     setPriceType(entry.priceType ?? 'sale');
     setSalePercent(entry.salePercent ?? 30);
-    setOtdPrice(entry.otdPrice || '');
     setIncludeProtection(entry.includeProtection ?? false);
     setShowHistory(false);
     setShowResults(false);
@@ -740,14 +713,14 @@ export default function AshleyDealCalculator() {
       };
     }
     return {
-      title: 'Quick Start (OTD)',
+      title: 'Quick Start (Margin)',
       steps: [
+        'Enter the sale price.',
         'Enter the landing cost.',
-        "Enter the customer's total offer.",
-        'Check if the margin is acceptable.',
+        'Check the color indicator.',
       ],
-      example: "Customer offers $1,200 OTD -- the app shows your margin.",
-      mistake: 'OTD means the total price including tax and delivery.',
+      example: 'Landing cost $500 at 50% margin means a $1,000 sale price.',
+      mistake: 'Prices should be entered before tax.',
       note: 'Below 47% margin -- stop and call a manager.',
     };
   })();
@@ -2156,14 +2129,11 @@ export default function AshleyDealCalculator() {
         <div className="mode-tabs">
           <button className={`mode-tab ${mode === 'quote' ? 'active' : ''}`} onClick={() => setMode('quote')}>Quote</button>
           <button className={`mode-tab ${mode === 'margin' ? 'active' : ''}`} onClick={() => setMode('margin')}>Margin</button>
-          <button className={`mode-tab ${mode === 'otd' ? 'active' : ''}`} onClick={() => setMode('otd')}>OTD</button>
         </div>
 
         {/* Settings Chip Bar */}
         <div className="settings-bar">
-          {mode !== 'otd' && (
-            <button className="setting-chip" onClick={cycleNextSalePercent}>Sale {salePercent}%</button>
-          )}
+          <button className="setting-chip" onClick={cycleNextSalePercent}>Sale {salePercent}%</button>
           <button
             className={`setting-chip ${priceType === 'tag' ? 'active' : ''}`}
             aria-pressed={priceType === 'tag'}
@@ -2171,27 +2141,23 @@ export default function AshleyDealCalculator() {
           >
             {priceType === 'tag' ? 'Retail' : 'Sale'} Price
           </button>
-          {mode !== 'otd' && (
-            <button
-              className={`setting-chip ${noTaxPromo ? 'active' : ''}`}
-              aria-pressed={noTaxPromo}
-              onClick={() => setNoTaxPromo(!noTaxPromo)}
-            >
-              No-Tax
-            </button>
-          )}
+          <button
+            className={`setting-chip ${noTaxPromo ? 'active' : ''}`}
+            aria-pressed={noTaxPromo}
+            onClick={() => setNoTaxPromo(!noTaxPromo)}
+          >
+            No-Tax
+          </button>
           <button className="setting-chip" onClick={cycleNextDelivery}>
             Del ${delivery}
           </button>
-          {mode !== 'otd' && (
-            <button
-              className={`setting-chip ${includeProtection ? 'active' : ''}`}
-              aria-pressed={includeProtection}
-              onClick={() => setIncludeProtection(!includeProtection)}
-            >
-              Protection {includeProtection ? 'ON' : 'OFF'}
-            </button>
-          )}
+          <button
+            className={`setting-chip ${includeProtection ? 'active' : ''}`}
+            aria-pressed={includeProtection}
+            onClick={() => setIncludeProtection(!includeProtection)}
+          >
+            Protection {includeProtection ? 'ON' : 'OFF'}
+          </button>
           <button className="setting-chip gear" onClick={() => setShowSettingsModal(true)}>⚙</button>
         </div>
 
@@ -2201,16 +2167,14 @@ export default function AshleyDealCalculator() {
             <div className="help-modal" onClick={e => e.stopPropagation()}>
               <h2>Deal Settings</h2>
               <div className="settings-modal-content">
-                {mode !== 'otd' && (
-                  <div className="setting-group">
-                    <label>Sale %</label>
-                    <div className="pill-group-compact">
-                      {salePercentOptions.map(pct => (
-                        <div key={pct} className={`pill-compact ${salePercent === pct ? 'selected' : ''}`} onClick={() => setSalePercent(pct)}>{pct}%</div>
-                      ))}
-                    </div>
+                <div className="setting-group">
+                  <label>Sale %</label>
+                  <div className="pill-group-compact">
+                    {salePercentOptions.map(pct => (
+                      <div key={pct} className={`pill-compact ${salePercent === pct ? 'selected' : ''}`} onClick={() => setSalePercent(pct)}>{pct}%</div>
+                    ))}
                   </div>
-                )}
+                </div>
                 <div className="setting-group">
                   <label>Price Type</label>
                   <div className="pill-group-compact">
@@ -2218,15 +2182,13 @@ export default function AshleyDealCalculator() {
                     <div className={`pill-compact ${priceType === 'tag' ? 'selected' : ''}`} onClick={() => setPriceType('tag')}>Retail</div>
                   </div>
                 </div>
-                {mode !== 'otd' && (
-                  <div className="setting-group">
-                    <label>No-Tax Promo</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className={`toggle-compact ${noTaxPromo ? 'on' : ''}`} role="switch" aria-checked={noTaxPromo} aria-label="No-Tax Promo" tabIndex={0} onClick={() => setNoTaxPromo(!noTaxPromo)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setNoTaxPromo(!noTaxPromo); }}} />
-                      <span style={{ fontSize: 11, color: noTaxPromo ? colors.success.main : colors.text.secondary }}>{noTaxPromo ? 'ON' : 'OFF'}</span>
-                    </div>
+                <div className="setting-group">
+                  <label>No-Tax Promo</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className={`toggle-compact ${noTaxPromo ? 'on' : ''}`} role="switch" aria-checked={noTaxPromo} aria-label="No-Tax Promo" tabIndex={0} onClick={() => setNoTaxPromo(!noTaxPromo)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setNoTaxPromo(!noTaxPromo); }}} />
+                    <span style={{ fontSize: 11, color: noTaxPromo ? colors.success.main : colors.text.secondary }}>{noTaxPromo ? 'ON' : 'OFF'}</span>
                   </div>
-                )}
+                </div>
                 <div className="setting-group">
                   <label>Delivery</label>
                   <div className="pill-group-compact">
@@ -2248,61 +2210,26 @@ export default function AshleyDealCalculator() {
                     />
                   )}
                 </div>
-                {mode !== 'otd' && (
-                  <div className="setting-group full-width">
-                    <label>Protection Plan</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className={`toggle-compact ${includeProtection ? 'on' : ''}`} role="switch" aria-checked={includeProtection} aria-label="Protection Plan" tabIndex={0} onClick={() => setIncludeProtection(!includeProtection)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIncludeProtection(!includeProtection); }}} />
-                      <span style={{ fontSize: 11, color: includeProtection ? colors.success.main : colors.text.secondary }}>
-                        {includeProtection ? `ON — ${formatMoney(calculateProtectionPlan(subtotal || 0))} added` : 'OFF'}
-                      </span>
-                    </div>
-                    {includeProtection && (
-                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
-                        $150 (0–1k) · $200 (1–2k) · $250 (2–3k) · $300 (3–4k) · $350 (4–5k) · $500 (5–6k) · +$50/1k after
-                      </div>
-                    )}
+                <div className="setting-group full-width">
+                  <label>Protection Plan</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className={`toggle-compact ${includeProtection ? 'on' : ''}`} role="switch" aria-checked={includeProtection} aria-label="Protection Plan" tabIndex={0} onClick={() => setIncludeProtection(!includeProtection)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIncludeProtection(!includeProtection); }}} />
+                    <span style={{ fontSize: 11, color: includeProtection ? colors.success.main : colors.text.secondary }}>
+                      {includeProtection ? `ON — ${formatMoney(calculateProtectionPlan(subtotal || 0))} added` : 'OFF'}
+                    </span>
                   </div>
-                )}
+                  {includeProtection && (
+                    <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                      $150 (0–1k) · $200 (1–2k) · $250 (2–3k) · $300 (3–4k) · $350 (4–5k) · $500 (5–6k) · +$50/1k after
+                    </div>
+                  )}
+                </div>
               </div>
               <button className="help-close" onClick={() => setShowSettingsModal(false)}>Done</button>
             </div>
           </div>
         )}
 
-        {/* OTD Price Input */}
-        {mode === 'otd' && (
-          <div className="card">
-            <div className="card-title">Customer's OTD Offer</div>
-            <div className="money-wrap-lg">
-              <input
-                type="text"
-                className={`input ${errors.otdPrice ? 'input-error' : ''}`}
-                placeholder="0.00"
-                value={otdPrice}
-                onChange={(e) => {
-                  setOtdPrice(e.target.value);
-                  clearError('otdPrice');
-                }}
-                inputMode="decimal"
-                style={{ fontSize: '22px', fontWeight: '700' }}
-              />
-            </div>
-            <div style={{ marginTop: '8px', fontSize: '12px', color: colors.text.secondary }}>
-              Enter customer total offer (tax + delivery included)
-            </div>
-            {errors.otdPrice && (
-              <div className="error-text">{errors.otdPrice}</div>
-            )}
-          </div>
-        )}
-
-        {/* OTD empty state guidance */}
-        {mode === 'otd' && !parseMoney(otdPrice) && !items.some(i => parseMoney(i.landingCost) > 0) && !showResults && (
-          <div style={{ background: colors.info.light, border: `1px solid ${colors.info.main}40`, borderRadius: 'var(--radius-sm)', padding: '10px 12px', marginBottom: 12, fontSize: 12, color: colors.text.primary, lineHeight: 1.5 }}>
-            <strong style={{ color: colors.info.main }}>How to use OTD mode:</strong> Enter your item landing costs below, then type the customer's total offer above. The app will show your margin.
-          </div>
-        )}
 
         {/* Items */}
         <div className="card" style={{ padding: 8 }}>
@@ -2349,18 +2276,16 @@ export default function AshleyDealCalculator() {
                     {item.name || 'Select type...'}
                   </button>
                 )}
-                {mode !== 'otd' && (
-                  <div className="money-wrap" style={{ width: 90, flex: 'none' }}>
-                    <input
-                      type="text"
-                      className={`input-compact ${errors.price ? 'input-error' : ''}`}
-                      placeholder={noTaxPromo ? 'Price+tax' : 'Price'}
-                      value={item.price}
-                      onChange={(e) => updateItemPrice(item.id, e.target.value)}
-                      inputMode="decimal"
-                    />
-                  </div>
-                )}
+                <div className="money-wrap" style={{ width: 90, flex: 'none' }}>
+                  <input
+                    type="text"
+                    className={`input-compact ${errors.price ? 'input-error' : ''}`}
+                    placeholder={noTaxPromo ? 'Price+tax' : 'Price'}
+                    value={item.price}
+                    onChange={(e) => updateItemPrice(item.id, e.target.value)}
+                    inputMode="decimal"
+                  />
+                </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
                   <span style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 600, marginBottom: 2 }}>Qty</span>
                   <input
@@ -2386,7 +2311,6 @@ export default function AshleyDealCalculator() {
                         value={item.landingCost}
                         onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
                         inputMode="decimal"
-                        ref={mode === 'otd' ? (el) => { if (el) el._itemId = item.id; } : null}
                       />
                     </div>
                     <button className="item-estimate-btn" onClick={() => estimateLandingCost(item.id)} title="Estimate landing cost (price ÷ 3.3)">Est.</button>
@@ -2417,7 +2341,7 @@ export default function AshleyDealCalculator() {
             calculate();
           }}
         >
-          {mode === 'quote' ? 'Calculate Quote' : mode === 'margin' ? 'Check Margin' : 'Analyze OTD'}
+          {mode === 'quote' ? 'Calculate Quote' : 'Check Margin'}
         </button>
       </div>
 
@@ -2427,7 +2351,7 @@ export default function AshleyDealCalculator() {
           <div className="result-card" onClick={e => e.stopPropagation()}>
             <div className="sheet-header">
               <div className="sheet-title">
-                {mode === 'quote' ? 'Your Quote' : mode === 'margin' ? 'Margin Analysis' : 'OTD Analysis'}
+                {mode === 'quote' ? 'Your Quote' : 'Margin Analysis'}
               </div>
               <button className="sheet-close" onClick={resetForm}>Close</button>
             </div>
@@ -2818,152 +2742,6 @@ export default function AshleyDealCalculator() {
               </>
             )}
 
-            {/* OTD Results */}
-            {mode === 'otd' && (
-              <>
-                {otdMargin !== null && (
-                  <>
-                    <div className="big-total" style={{
-                      background: otdMargin >= 50 
-                        ? `linear-gradient(135deg, ${colors.success.main} 0%, ${colors.success.dark} 100%)`
-                        : otdMargin >= 47
-                        ? `linear-gradient(135deg, ${colors.warning.main} 0%, ${colors.warning.dark} 100%)`
-                        : `linear-gradient(135deg, ${colors.error.main} 0%, ${colors.error.dark} 100%)`
-                    }}>
-                      <div className="big-total-label">
-                        {otdMargin >= 50 ? 'APPROVED' : otdMargin >= 47 ? 'MANAGER APPROVAL' : 'TOO LOW'}
-                      </div>
-                      <div className="big-total-amount">{formatMoney(otdAmount)}</div>
-                      <div className="big-total-sub">Customer's OTD offer</div>
-                    </div>
-
-                    <details className="result-section">
-                      <summary>
-                        Deal Breakdown
-                        <span className="summary-chevron">▼</span>
-                      </summary>
-                      <div style={{ marginTop: '8px' }}>
-                        <div className="breakdown-row">
-                          <span className="breakdown-label">Customer Offer (OTD)</span>
-                          <span className="breakdown-value">{formatMoney(otdAmount)}</span>
-                        </div>
-                        {deliveryAmount > 0 && (
-                          <div className="breakdown-row">
-                            <span className="breakdown-label">− Delivery + Tax</span>
-                            <span className="breakdown-value">({formatMoney(otdDeliveryWithTax)})</span>
-                          </div>
-                        )}
-                        <div className="breakdown-row">
-                          <span className="breakdown-label">= Merch w/ Tax</span>
-                          <span className="breakdown-value">{formatMoney(otdMerchandiseWithTax)}</span>
-                        </div>
-                        <div className="breakdown-row">
-                          <span className="breakdown-label">− Tax ({TAX_RATE}%)</span>
-                          <span className="breakdown-value">({formatMoney(otdMerchandiseTax)})</span>
-                        </div>
-                        <div className="breakdown-row" style={{ background: colors.primary[50], margin: '0 -20px', padding: '10px 20px' }}>
-                          <span className="breakdown-label" style={{ fontWeight: 600 }}>= Sale Price (Invoice)</span>
-                          <span className="breakdown-value" style={{ fontSize: '16px' }}>{formatMoney(otdSalePrice)}</span>
-                        </div>
-                      </div>
-                    </details>
-
-                    <details className="result-section">
-                      <summary>
-                        Margin Analysis
-                        <span className="summary-chevron">▼</span>
-                      </summary>
-                      <div style={{ marginTop: '8px' }}>
-                        <div className="breakdown-row">
-                          <span className="breakdown-label">Total Landing Cost</span>
-                          <span className="breakdown-value">{formatMoney(totalLandingCost)}</span>
-                        </div>
-                        <div className="breakdown-row">
-                          <span className="breakdown-label">Sale Price</span>
-                          <span className="breakdown-value">{formatMoney(otdSalePrice)}</span>
-                        </div>
-                        <div className="breakdown-row">
-                          <span className="breakdown-label">Profit</span>
-                          <span className="breakdown-value" style={{ color: otdProfit >= 0 ? colors.success.main : colors.error.main }}>
-                            {formatMoney(otdProfit)}
-                          </span>
-                        </div>
-                        <div className="breakdown-row" style={{ background: colors.primary[50], margin: '0 -20px', padding: '10px 20px' }}>
-                          <span className="breakdown-label" style={{ fontWeight: 600, fontSize: '14px' }}>MARGIN</span>
-                          <span 
-                            className="breakdown-value" 
-                            style={{ 
-                              fontSize: '20px',
-                              color: getMarginColor(otdMargin)
-                            }}
-                          >
-                            {otdMargin?.toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
-                    </details>
-
-                    {/* OTD Price Targets */}
-                    <details className="result-section">
-                      <summary>
-                        Counter-Offer Prices (OTD)
-                        <span className="summary-chevron">▼</span>
-                      </summary>
-                      <div style={{ marginTop: '8px' }}>
-                        <div style={{ fontSize: '11px', color: colors.text.secondary, marginBottom: '8px' }}>
-                          If you need to counter, here's what OTD price hits each margin:
-                        </div>
-                        <div className="margin-prices">
-                          <div className={`margin-price-box ${otdMargin >= 49.5 && otdMargin < 50.5 ? 'current' : ''}`}>
-                            <div className="margin-price-label">50%</div>
-                            <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 50) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
-                          </div>
-                          <div className={`margin-price-box ${otdMargin >= 48.5 && otdMargin < 49.5 ? 'current' : ''}`}>
-                            <div className="margin-price-label">49%</div>
-                            <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 49) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
-                          </div>
-                          <div className={`margin-price-box ${otdMargin >= 47.5 && otdMargin < 48.5 ? 'current' : ''}`}>
-                            <div className="margin-price-label">48%</div>
-                            <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 48) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
-                          </div>
-                          <div className={`margin-price-box ${otdMargin >= 46.5 && otdMargin < 47.5 ? 'current' : ''}`}>
-                            <div className="margin-price-label">47%</div>
-                            <div className="margin-price-value">{formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</div>
-                          </div>
-                        </div>
-                      </div>
-                    </details>
-                  </>
-                )}
-
-                {otdMargin !== null && otdMargin < 47 && (
-                  <div className="quick-ref">
-                    <div className="quick-ref-title">Below 47% Minimum</div>
-                    <div className="quick-ref-item">
-                      Counter with: <strong>{formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}</strong> for 47% margin
-                    </div>
-                  </div>
-                )}
-
-                {otdMargin !== null && otdMargin >= 47 && (
-                  <div style={{ background: colors.warning.light, borderRadius: '8px', padding: '12px', marginTop: '12px', border: `1px solid ${colors.warning.main}40` }}>
-                    <div style={{ fontSize: '12px', color: colors.warning.main, fontWeight: 600, marginBottom: '4px' }}>📝 For Invoice:</div>
-                    <div style={{ fontSize: '12px', color: colors.text.secondary }}>
-                      Write <strong>{formatMoney(otdSalePrice)}</strong> merchandise{deliveryAmount > 0 && <> + <strong>{formatMoney(deliveryAmount)}</strong> delivery</>}
-                      <br/>
-                      Tax auto-calculates → Total = {formatMoney(otdAmount)} ✓
-                    </div>
-                  </div>
-                )}
-
-                {/* Copy for Manager */}
-                <CopyBlock
-                  title="Copy for Manager"
-                  content={`OTD REQUEST\n${calculatedItems.filter(i => i.landingProvided).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)}`).join('\n')}\nLanding Total: ${formatMoney(totalLandingCost)}\n\nCustomer Offer: ${formatMoney(otdAmount)} OTD${deliveryAmount > 0 ? `\nDelivery: ${formatMoney(deliveryAmount)} + ${formatMoney(deliveryTax)} tax` : ''}\nSale Price: ${formatMoney(otdSalePrice)}\nProfit: ${formatMoney(otdProfit)}\nMARGIN: ${otdMargin?.toFixed(1)}%${otdMargin < 47 ? `\n\nBELOW 47% - Min OTD: ${formatMoney((priceForMargin(totalLandingCost, 47) * (1 + taxRate)) + deliveryAmount + deliveryTax)}` : ''}`}
-                />
-              </>
-            )}
-
             <div className="result-buttons">
               <button className="result-btn secondary" onClick={startOver}>
                 Start Over
@@ -2986,7 +2764,7 @@ export default function AshleyDealCalculator() {
             {/* Quick Start — mode-specific tips at the top */}
             <div style={{ background: 'rgba(226,55,68,0.08)', border: '1px solid rgba(226,55,68,0.2)', borderRadius: 'var(--radius-sm)', padding: '12px', marginBottom: '16px' }}>
               <div style={{ fontSize: 'var(--text-xs)', fontWeight: 700, color: 'var(--primary)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Quick Start — {mode === 'quote' ? 'Quote' : mode === 'margin' ? 'Margin' : 'OTD'} Mode
+                Quick Start — {mode === 'quote' ? 'Quote' : 'Margin'} Mode
               </div>
               {currentGuide.steps.map((step, i) => (
                 <div key={i} style={{ fontSize: 'var(--text-xs)', color: 'var(--text)', padding: '2px 0' }}>{i + 1}. {step}</div>
@@ -3023,16 +2801,6 @@ export default function AshleyDealCalculator() {
             </div>
 
             <div className="help-section">
-              <h3>OTD (Customer Offer)</h3>
-              <ul>
-                <li>Enter landing cost</li>
-                <li>Enter customer total offer</li>
-                <li>App shows your margin</li>
-              </ul>
-              <p style={{ marginTop: '6px' }}><strong>Note:</strong> OTD includes tax and delivery</p>
-            </div>
-
-            <div className="help-section">
               <h3>Delivery</h3>
               <ul>
                 <li>Pick $100 / $135 / $150</li>
@@ -3054,15 +2822,11 @@ export default function AshleyDealCalculator() {
               <h3>FAQ</h3>
               <div className="faq-item">
                 <div className="faq-q">Q: Which mode should I use?</div>
-                <div className="faq-a">A: Quote for totals. Margin for profit. OTD for offers.</div>
+                <div className="faq-a">A: Quote for customer totals. Margin for profit checks.</div>
               </div>
               <div className="faq-item">
                 <div className="faq-q">Q: What is landing cost?</div>
                 <div className="faq-a">A: Your cost from the system.</div>
-              </div>
-              <div className="faq-item">
-                <div className="faq-q">Q: What is OTD?</div>
-                <div className="faq-a">A: Total with tax and delivery.</div>
               </div>
               <div className="faq-item">
                 <div className="faq-q">Q: What does No-Tax mean?</div>
@@ -3086,7 +2850,7 @@ export default function AshleyDealCalculator() {
               </div>
               <div className="faq-item">
                 <div className="faq-q">Q: Can I use this without landing cost?</div>
-                <div className="faq-a">A: Quote mode yes. Margin and OTD need landing cost.</div>
+                <div className="faq-a">A: Quote mode yes. Margin mode needs landing cost.</div>
               </div>
               <div className="faq-item">
                 <div className="faq-q">Q: How do I copy for a manager?</div>
@@ -3099,7 +2863,6 @@ export default function AshleyDealCalculator() {
               <div className="glossary-item"><strong>Landing cost:</strong> Your cost.</div>
               <div className="glossary-item"><strong>Sale price:</strong> Price before tax.</div>
               <div className="glossary-item"><strong>Quote:</strong> What the customer pays.</div>
-              <div className="glossary-item"><strong>OTD:</strong> Total with tax and delivery.</div>
               <div className="glossary-item"><strong>Margin:</strong> Your profit percent.</div>
             </div>
 
@@ -3189,8 +2952,8 @@ export default function AshleyDealCalculator() {
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 700, color: colors.text.primary }}>
-                      {entry.mode === 'quote' ? '💵' : entry.mode === 'margin' ? '📊' : '🎯'}{' '}
-                      {entry.mode === 'quote' ? 'Quote' : entry.mode === 'margin' ? 'Margin' : 'OTD'}
+                      {entry.mode === 'quote' ? '💵' : '📊'}{' '}
+                      {entry.mode === 'quote' ? 'Quote' : 'Margin'}
                     </span>
                     <span style={{ fontSize: '11px', color: colors.text.secondary }}>{formatRelativeTime(entry.ts)}</span>
                   </div>
