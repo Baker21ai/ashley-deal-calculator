@@ -2693,9 +2693,70 @@ export default function AshleyDealCalculator() {
                   </div>
                 </details>
 
+                {/* Customer Total Breakdown */}
+                {subtotal > 0 && (
+                  <details className="result-section" open>
+                    <summary>
+                      Customer Total
+                      <span className="summary-chevron">▼</span>
+                    </summary>
+                    <div style={{ marginTop: '8px' }}>
+                      {calculatedItems.map((item, i) => (
+                        <div key={item.id} className="breakdown-row">
+                          <span className="breakdown-label">{item.name || `Item ${i + 1}`} × {item.qty}</span>
+                          <span className="breakdown-value">{noTaxPromo ? formatMoney(item.quotePrice * item.qty) : formatMoney(item.lineTotal)}</span>
+                        </div>
+                      ))}
+                      <div className="breakdown-row">
+                        <span className="breakdown-label">Merchandise Subtotal</span>
+                        <span className="breakdown-value">{noTaxPromo ? formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0)) : formatMoney(subtotal)}</span>
+                      </div>
+                      {!noTaxPromo && (
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">Tax ({TAX_RATE}%)</span>
+                          <span className="breakdown-value">{formatMoney(taxOnMerchandise)}</span>
+                        </div>
+                      )}
+                      {deliveryAmount > 0 && (
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">Delivery{!noTaxPromo ? ' + Tax' : ''}</span>
+                          <span className="breakdown-value">{formatMoney(deliveryAmount + deliveryTax)}</span>
+                        </div>
+                      )}
+                      {protectionPlanCost > 0 && (
+                        <div className="breakdown-row">
+                          <span className="breakdown-label">Protection Plan</span>
+                          <span className="breakdown-value">{formatMoney(protectionPlanCost)}</span>
+                        </div>
+                      )}
+                      <div className="breakdown-row" style={{ background: colors.primary[50], margin: '4px -12px 0', padding: '10px 12px', borderRadius: '6px', borderBottom: 'none' }}>
+                        <span className="breakdown-label" style={{ fontWeight: 700, color: colors.text.primary, fontSize: '14px' }}>Customer Pays</span>
+                        <span className="breakdown-value" style={{ fontSize: '18px' }}>{formatMoney(customerTotal)}</span>
+                      </div>
+                      {noTaxPromo && (
+                        <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
+                          Tax included in prices — customer pays one simple total
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
+
+                {subtotal > 0 && (
+                  <div style={{ background: colors.success.light, borderRadius: '8px', padding: '12px', marginTop: '12px', border: `1px solid ${colors.success.main}40` }}>
+                    <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>Tell Customer:</div>
+                    <div style={{ fontSize: '15px', color: colors.text.primary, fontWeight: 600 }}>
+                      {noTaxPromo
+                        ? `"Your total is ${formatMoney(customerTotal)} — that includes everything!"`
+                        : `"${formatMoney(subtotal + deliveryAmount)} plus tax"`
+                      }
+                    </div>
+                  </div>
+                )}
+
                 <details className="result-section">
                   <summary>
-                    Deal Summary
+                    Internal Summary
                     <span className="summary-chevron">▼</span>
                   </summary>
                   <div style={{ marginTop: '8px' }}>
@@ -2709,30 +2770,10 @@ export default function AshleyDealCalculator() {
                     </div>
                     <div className="breakdown-row">
                       <span className="breakdown-label">Total Profit</span>
-                      <span className="breakdown-value" style={{ color: '#2e7d32' }}>{totalProfit > 0 ? formatMoney(totalProfit) : '—'}</span>
+                      <span className="breakdown-value" style={{ color: colors.success.main }}>{totalProfit > 0 ? formatMoney(totalProfit) : '—'}</span>
                     </div>
-                    {deliveryAmount > 0 && (
-                      <div className="breakdown-row">
-                        <span className="breakdown-label">Delivery + Tax</span>
-                        <span className="breakdown-value">{formatMoney(deliveryAmount + deliveryTax)}</span>
-                      </div>
-                    )}
-                    {protectionPlanCost > 0 && (
-                      <div className="breakdown-row">
-                        <span className="breakdown-label">Protection Plan</span>
-                        <span className="breakdown-value">{formatMoney(protectionPlanCost)}</span>
-                      </div>
-                    )}
                   </div>
                 </details>
-                {noTaxPromo && subtotal > 0 && (
-                  <div style={{ background: colors.success.light, borderRadius: '8px', padding: '12px', marginTop: '12px', border: `1px solid ${colors.success.main}40` }}>
-                    <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>Quote to Customer:</div>
-                    <div style={{ fontSize: '15px', color: colors.text.primary, fontWeight: 600 }}>
-                      {formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0) + deliveryAmount + deliveryTax)} total
-                    </div>
-                  </div>
-                )}
 
                 {/* Copy for Manager */}
                 <CopyBlock
