@@ -436,30 +436,24 @@ export default function AshleyDealCalculator() {
     clearError('price');
   };
 
-  // Estimate landing cost from full retail price / 3.3
+  // Estimate landing cost from full retail price / 3.3 (auto-calculate)
   const estimateLandingCost = (itemId) => {
     const item = items.find(i => i.id === itemId);
     if (!item) return;
     const currentPrice = parseMoney(item.price);
-    let prefillRetail = '';
+    let retailPrice = 0;
     if (currentPrice > 0) {
       if (priceType === 'tag') {
-        prefillRetail = currentPrice.toFixed(2);
+        retailPrice = currentPrice;
       } else {
         const discount = salePercent / 100;
-        prefillRetail = (currentPrice / (1 - discount)).toFixed(2);
+        retailPrice = currentPrice / (1 - discount);
       }
     }
-    setEstimateModal({ open: true, itemId, retailPrice: prefillRetail });
-  };
-
-  const applyEstimate = () => {
-    const retail = parseMoney(estimateModal.retailPrice);
-    if (retail > 0) {
-      const estimated = Math.round((retail / 3.3) * 100) / 100;
-      updateItem(estimateModal.itemId, 'landingCost', estimated.toFixed(2));
+    if (retailPrice > 0) {
+      const estimated = Math.round((retailPrice / 3.3) * 100) / 100;
+      updateItem(itemId, 'landingCost', estimated.toFixed(2));
     }
-    setEstimateModal({ open: false, itemId: null, retailPrice: '' });
   };
   
   const startOver = () => {
@@ -648,8 +642,6 @@ export default function AshleyDealCalculator() {
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showCustomDelivery, setShowCustomDelivery] = useState(false);
-  // Estimate landing cost modal (replaces window.prompt)
-  const [estimateModal, setEstimateModal] = useState({ open: false, itemId: null, retailPrice: '' });
 
   const salePercentOptions = [30, 35, 40];
   const deliveryOptions = ['0', '100', '135', '150'];
@@ -2292,33 +2284,6 @@ export default function AshleyDealCalculator() {
           <button className="add-item-btn" onClick={addItem}>+ Add Item</button>
         </div>
 
-        {/* Estimate Landing Cost Modal */}
-        {estimateModal.open && (
-          <div className="help-overlay" onClick={() => setEstimateModal({ open: false, itemId: null, retailPrice: '' })}>
-            <div className="help-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '360px' }}>
-              <h2 style={{ marginBottom: 12 }}>Estimate Landing Cost</h2>
-              <p style={{ fontSize: 'var(--text-sm)', color: 'var(--muted)', marginBottom: 12 }}>Enter the full retail price. Landing = retail ÷ 3.3.</p>
-              <input
-                type="text"
-                className="input"
-                placeholder="Full retail price"
-                value={estimateModal.retailPrice}
-                onChange={(e) => setEstimateModal({ ...estimateModal, retailPrice: e.target.value })}
-                inputMode="decimal"
-                autoFocus
-              />
-              {parseMoney(estimateModal.retailPrice) > 0 && (
-                <div style={{ fontSize: 'var(--text-sm)', color: 'var(--success)', fontWeight: 600, marginTop: 8 }}>
-                  Estimated landing: {formatMoney(parseMoney(estimateModal.retailPrice) / 3.3)}
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-                <button className="help-close" style={{ background: 'var(--surface-2)', color: 'var(--text)', boxShadow: 'none', flex: 1 }} onClick={() => setEstimateModal({ open: false, itemId: null, retailPrice: '' })}>Cancel</button>
-                <button className="help-close" style={{ flex: 1 }} onClick={applyEstimate}>Apply</button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Sticky Calculate Button */}
