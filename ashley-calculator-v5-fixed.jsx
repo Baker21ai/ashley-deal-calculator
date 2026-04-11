@@ -433,10 +433,29 @@ export default function AshleyDealCalculator() {
 
   // FIX: Clear marginSet flag and selectedMargin when user manually edits price
   const updateItemPrice = (id, value) => {
-    setItems(items.map(item => 
+    setItems(items.map(item =>
       item.id === id ? { ...item, price: value, marginSet: false, selectedMargin: null, originalPrice: undefined } : item
     ));
     clearError('price');
+  };
+
+  // Set ALL items to a target margin at once
+  const setAllItemsToMargin = (targetMargin) => {
+    setItems(items.map(item => {
+      const landingCost = parseMoney(item.landingCost);
+      if (landingCost > 0) {
+        const originalPrice = item.marginSet ? item.originalPrice : item.price;
+        const invoicePrice = priceForMargin(landingCost, targetMargin);
+        return {
+          ...item,
+          price: invoicePrice.toFixed(2),
+          marginSet: true,
+          selectedMargin: targetMargin,
+          originalPrice: originalPrice,
+        };
+      }
+      return item;
+    }));
   };
 
   // Estimate landing cost from full retail price / 3.3 (auto-calculate)
@@ -2558,6 +2577,29 @@ export default function AshleyDealCalculator() {
                     <div className="big-total-label">Margin Check</div>
                     <div className="big-total-amount" style={{ fontSize: '20px', color: 'rgba(255,255,255,0.6)' }}>Enter landing cost</div>
                     <div className="big-total-sub">Add landing cost to see margin</div>
+                  </div>
+                )}
+
+                {/* Set entire order to a margin target */}
+                {totalLandingCost > 0 && (
+                  <div style={{ background: colors.primary[50], border: `1px solid ${colors.primary[200]}`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 700, color: colors.primary[400], marginBottom: '8px' }}>Set Entire Order to Margin</div>
+                    <div className="margin-prices">
+                      {[50, 49, 48, 47].map(target => (
+                        <div
+                          key={target}
+                          className={`margin-price-box ${items.every(i => !parseMoney(i.landingCost) || i.selectedMargin === target) && items.some(i => i.selectedMargin === target) ? 'current' : ''}`}
+                          onClick={() => setAllItemsToMargin(target)}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <div className="margin-price-label">{target}%</div>
+                          <div className="margin-price-value">{formatMoney(noTaxPromo ? priceForMargin(totalLandingCost, target) * (1 + taxRate) : priceForMargin(totalLandingCost, target))}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '6px', textAlign: 'center' }}>
+                      {noTaxPromo ? 'Prices shown include tax' : 'Invoice prices shown'}
+                    </div>
                   </div>
                 )}
 
