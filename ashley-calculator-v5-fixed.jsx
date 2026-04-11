@@ -1,4 +1,4 @@
-import { useState, useLayoutEffect, useMemo } from 'react';
+import { useState, useLayoutEffect, useMemo, useEffect, useRef, useCallback } from 'react';
 
 const TAX_RATE = 9.125;
 const STORAGE_KEY = 'ashley-calculator-state';
@@ -157,6 +157,9 @@ export default function AshleyDealCalculator() {
 
   // Copy feedback state
   const [copyFeedback, setCopyFeedback] = useState(false);
+
+  // Calculate button feedback
+  const [calcPulse, setCalcPulse] = useState(false);
 
   // Protection plan
   const [includeProtection, setIncludeProtection] = useState(
@@ -613,21 +616,20 @@ export default function AshleyDealCalculator() {
           }}
         >
           {content}
-          {copied && (
-            <div style={{
-              position: 'absolute',
-              top: 8,
-              right: 8,
-              background: colors.success.main,
-              color: 'white',
-              padding: `${space.xs}px ${space.sm}px`,
-              borderRadius: '4px',
-              fontSize: '10px',
-              fontWeight: 600
-            }}>
-              ✓ Copied!
-            </div>
-          )}
+          <div style={{
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            background: copied ? colors.success.main : colors.primary[200],
+            color: copied ? 'white' : colors.text.secondary,
+            padding: `${space.xs}px ${space.sm}px`,
+            borderRadius: '4px',
+            fontSize: '10px',
+            fontWeight: 600,
+            transition: 'all 0.15s',
+          }}>
+            {copied ? '✓ Copied!' : '📋 Copy'}
+          </div>
         </div>
         <p style={{ fontSize: '11px', color: colors.text.secondary, marginTop: space.xs, textAlign: 'center' }}>
           Tap to copy
@@ -638,10 +640,39 @@ export default function AshleyDealCalculator() {
 
   // State for header menu
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
   // Settings modal (gear icon)
   const [settingsExpanded, setSettingsExpanded] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showCustomDelivery, setShowCustomDelivery] = useState(false);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handleClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('touchstart', handleClick);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('touchstart', handleClick);
+    };
+  }, [menuOpen]);
+
+  // Enter key triggers calculation
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Enter' && !showResults && !showHelp && !showSettingsModal && !showHistory) {
+        e.preventDefault();
+        calculate();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  });
 
   const salePercentOptions = [30, 35, 40];
   const deliveryOptions = ['0', '100', '135', '150'];
@@ -1035,7 +1066,7 @@ export default function AshleyDealCalculator() {
         }
         .input-label {
           font-size: 11px;
-          color: #666;
+          color: var(--muted);
           margin-bottom: 4px;
           display: block;
         }
@@ -1891,6 +1922,44 @@ export default function AshleyDealCalculator() {
           box-shadow: 0 0 0 2px var(--crimson-glow);
         }
         .input-compact::placeholder { color: var(--muted); }
+        .money-wrap {
+          position: relative;
+          display: flex;
+          flex: 1;
+          min-width: 0;
+        }
+        .money-wrap .input-compact {
+          padding-left: 22px;
+        }
+        .money-wrap::before {
+          content: '$';
+          position: absolute;
+          left: 8px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: var(--muted);
+          font-size: var(--text-sm);
+          pointer-events: none;
+          z-index: 1;
+        }
+        .money-wrap-lg {
+          position: relative;
+        }
+        .money-wrap-lg .input {
+          padding-left: 28px;
+        }
+        .money-wrap-lg::before {
+          content: '$';
+          position: absolute;
+          left: 12px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: var(--muted);
+          font-size: 20px;
+          font-weight: 600;
+          pointer-events: none;
+          z-index: 1;
+        }
         .item-estimate-btn {
           background: var(--glass);
           border: 1px solid var(--line);
@@ -1980,6 +2049,14 @@ export default function AshleyDealCalculator() {
           box-shadow: none;
           cursor: not-allowed;
         }
+        .calc-btn-pulse {
+          animation: btnPulse 0.3s ease-out;
+        }
+        @keyframes btnPulse {
+          0% { transform: scale(1); }
+          40% { transform: scale(0.95); box-shadow: 0 2px 8px var(--crimson-glow); }
+          100% { transform: scale(1); box-shadow: 0 4px 14px var(--crimson-glow), 0 2px 8px rgba(0,0,0,0.3); }
+        }
 
         /* Compact result styles */
         .result-card-compact {
@@ -2039,7 +2116,7 @@ export default function AshleyDealCalculator() {
             ⋮
           </button>
           {menuOpen && (
-            <div className="header-menu">
+            <div className="header-menu" ref={menuRef}>
               <button
                 className="header-menu-item"
                 onClick={() => { setShowHistory(true); setMenuOpen(false); }}
@@ -2066,31 +2143,34 @@ export default function AshleyDealCalculator() {
         {/* Settings Chip Bar */}
         <div className="settings-bar">
           {mode !== 'otd' && (
-            <button className="setting-chip" onClick={cycleNextSalePercent}>{salePercent}%</button>
+            <button className="setting-chip" onClick={cycleNextSalePercent}>Sale {salePercent}%</button>
           )}
           <button
             className={`setting-chip ${priceType === 'tag' ? 'active' : ''}`}
+            aria-pressed={priceType === 'tag'}
             onClick={() => setPriceType(priceType === 'sale' ? 'tag' : 'sale')}
           >
-            {priceType === 'tag' ? 'Retail' : 'Sale'}
+            {priceType === 'tag' ? 'Retail' : 'Sale'} Price
           </button>
           {mode !== 'otd' && (
             <button
               className={`setting-chip ${noTaxPromo ? 'active' : ''}`}
+              aria-pressed={noTaxPromo}
               onClick={() => setNoTaxPromo(!noTaxPromo)}
             >
               No-Tax
             </button>
           )}
           <button className="setting-chip" onClick={cycleNextDelivery}>
-            ${delivery}
+            Del ${delivery}
           </button>
           {mode !== 'otd' && (
             <button
               className={`setting-chip ${includeProtection ? 'active' : ''}`}
+              aria-pressed={includeProtection}
               onClick={() => setIncludeProtection(!includeProtection)}
             >
-              Plan {includeProtection ? 'ON' : 'OFF'}
+              Protection {includeProtection ? 'ON' : 'OFF'}
             </button>
           )}
           <button className="setting-chip gear" onClick={() => setShowSettingsModal(true)}>⚙</button>
@@ -2123,7 +2203,7 @@ export default function AshleyDealCalculator() {
                   <div className="setting-group">
                     <label>No-Tax Promo</label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className={`toggle-compact ${noTaxPromo ? 'on' : ''}`} onClick={() => setNoTaxPromo(!noTaxPromo)} />
+                      <div className={`toggle-compact ${noTaxPromo ? 'on' : ''}`} role="switch" aria-checked={noTaxPromo} aria-label="No-Tax Promo" tabIndex={0} onClick={() => setNoTaxPromo(!noTaxPromo)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setNoTaxPromo(!noTaxPromo); }}} />
                       <span style={{ fontSize: 11, color: noTaxPromo ? colors.success.main : colors.text.secondary }}>{noTaxPromo ? 'ON' : 'OFF'}</span>
                     </div>
                   </div>
@@ -2153,7 +2233,7 @@ export default function AshleyDealCalculator() {
                   <div className="setting-group full-width">
                     <label>Protection Plan</label>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div className={`toggle-compact ${includeProtection ? 'on' : ''}`} onClick={() => setIncludeProtection(!includeProtection)} />
+                      <div className={`toggle-compact ${includeProtection ? 'on' : ''}`} role="switch" aria-checked={includeProtection} aria-label="Protection Plan" tabIndex={0} onClick={() => setIncludeProtection(!includeProtection)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIncludeProtection(!includeProtection); }}} />
                       <span style={{ fontSize: 11, color: includeProtection ? colors.success.main : colors.text.secondary }}>
                         {includeProtection ? `ON — ${formatMoney(calculateProtectionPlan(subtotal || 0))} added` : 'OFF'}
                       </span>
@@ -2175,24 +2255,33 @@ export default function AshleyDealCalculator() {
         {mode === 'otd' && (
           <div className="card">
             <div className="card-title">Customer's OTD Offer</div>
-            <input
-              type="text"
-              className={`input ${errors.otdPrice ? 'input-error' : ''}`}
-              placeholder="$0.00"
-              value={otdPrice}
-              onChange={(e) => {
-                setOtdPrice(e.target.value);
-                clearError('otdPrice');
-              }}
-              inputMode="decimal"
-              style={{ fontSize: '22px', fontWeight: '700' }}
-            />
+            <div className="money-wrap-lg">
+              <input
+                type="text"
+                className={`input ${errors.otdPrice ? 'input-error' : ''}`}
+                placeholder="0.00"
+                value={otdPrice}
+                onChange={(e) => {
+                  setOtdPrice(e.target.value);
+                  clearError('otdPrice');
+                }}
+                inputMode="decimal"
+                style={{ fontSize: '22px', fontWeight: '700' }}
+              />
+            </div>
             <div style={{ marginTop: '8px', fontSize: '12px', color: colors.text.secondary }}>
               Enter customer total offer (tax + delivery included)
             </div>
             {errors.otdPrice && (
               <div className="error-text">{errors.otdPrice}</div>
             )}
+          </div>
+        )}
+
+        {/* OTD empty state guidance */}
+        {mode === 'otd' && !parseMoney(otdPrice) && !items.some(i => parseMoney(i.landingCost) > 0) && !showResults && (
+          <div style={{ background: colors.info.light, border: `1px solid ${colors.info.main}40`, borderRadius: 'var(--radius-sm)', padding: '10px 12px', marginBottom: 12, fontSize: 12, color: colors.text.primary, lineHeight: 1.5 }}>
+            <strong style={{ color: colors.info.main }}>How to use OTD mode:</strong> Enter your item landing costs below, then type the customer's total offer above. The app will show your margin.
           </div>
         )}
 
@@ -2215,60 +2304,73 @@ export default function AshleyDealCalculator() {
                     autoFocus
                     style={{ flex: 1 }}
                   />
-                ) : (
+                ) : expandedItemPresets[item.id] ? (
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: expandedMore[item.id] ? 6 : 0 }}>
                       {TOP_ITEM_PRESETS.map(p => (
-                        <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => updateItem(item.id, 'name', p)} style={{ fontSize: 11 }}>{p}</button>
+                        <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
                       ))}
-                      <button className={`pill-compact${expandedMore[item.id] ? ' selected' : ''}`} onClick={() => setExpandedMore({ ...expandedMore, [item.id]: !expandedMore[item.id] })} style={{ fontSize: 11 }}>{expandedMore[item.id] ? 'Less ▲' : 'More ▼'}</button>
-                      <button className={`pill-compact${!TOP_ITEM_PRESETS.includes(item.name) && !MORE_ITEM_PRESETS.includes(item.name) && item.name !== '' ? ' selected' : ''}`} onClick={() => setShowCustomInput({ ...showCustomInput, [item.id]: true })} style={{ fontSize: 11 }}>Custom</button>
+                      <button className={`pill-compact${expandedMore[item.id] ? ' selected' : ''}`} onClick={() => setExpandedMore({ ...expandedMore, [item.id]: !expandedMore[item.id] })} style={{ fontSize: 11 }}>{expandedMore[item.id] ? 'Less' : 'More'}</button>
+                      <button className="pill-compact" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: true }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>Custom</button>
                     </div>
                     {expandedMore[item.id] && (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {MORE_ITEM_PRESETS.map(p => (
-                          <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedMore({ ...expandedMore, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
+                          <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedMore({ ...expandedMore, [item.id]: false }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
                         ))}
                       </div>
                     )}
                   </div>
+                ) : (
+                  <button
+                    className="pill-compact"
+                    onClick={() => setExpandedItemPresets({ ...expandedItemPresets, [item.id]: true })}
+                    style={{ fontSize: 12, flex: 1, justifyContent: 'flex-start', gap: 6 }}
+                  >
+                    {item.name || 'Select type...'}
+                  </button>
                 )}
                 {mode !== 'otd' && (
-                  <input
-                    type="text"
-                    className={`input-compact ${errors.price ? 'input-error' : ''}`}
-                    placeholder={noTaxPromo ? 'Price+tax' : 'Price'}
-                    value={item.price}
-                    onChange={(e) => updateItemPrice(item.id, e.target.value)}
-                    inputMode="decimal"
-                    style={{ width: 90, flex: 'none' }}
-                  />
+                  <div className="money-wrap" style={{ width: 90, flex: 'none' }}>
+                    <input
+                      type="text"
+                      className={`input-compact ${errors.price ? 'input-error' : ''}`}
+                      placeholder={noTaxPromo ? 'Price+tax' : 'Price'}
+                      value={item.price}
+                      onChange={(e) => updateItemPrice(item.id, e.target.value)}
+                      inputMode="decimal"
+                    />
+                  </div>
                 )}
-                <input
-                  type="number"
-                  className="input-qty-compact"
-                  value={item.qty}
-                  onChange={(e) => updateItem(item.id, 'qty', e.target.value)}
-                  min="1"
-                  placeholder="1"
-                  title="Quantity"
-                />
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                  <span style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 600, marginBottom: 2 }}>Qty</span>
+                  <input
+                    type="number"
+                    className="input-qty-compact"
+                    value={item.qty}
+                    onChange={(e) => updateItem(item.id, 'qty', e.target.value)}
+                    min="1"
+                    placeholder="1"
+                    title="Quantity"
+                  />
+                </div>
               </div>
               {/* Row 2: Landing + Estimate + Remove + Back */}
               <div className="item-row-bottom">
                 {mode !== 'quote' && (
                   <>
-                    <input
-                      type="text"
-                      className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
-                      placeholder="Landing $"
-                      value={item.landingCost}
-                      onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
-                      inputMode="decimal"
-                      ref={mode === 'otd' ? (el) => { if (el) el._itemId = item.id; } : null}
-                      style={{ flex: 1 }}
-                    />
-                    <button className="item-estimate-btn" onClick={() => estimateLandingCost(item.id)} title="Estimate landing cost (price ÷ 3.3)">~</button>
+                    <div className="money-wrap">
+                      <input
+                        type="text"
+                        className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
+                        placeholder="Landing"
+                        value={item.landingCost}
+                        onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
+                        inputMode="decimal"
+                        ref={mode === 'otd' ? (el) => { if (el) el._itemId = item.id; } : null}
+                      />
+                    </div>
+                    <button className="item-estimate-btn" onClick={() => estimateLandingCost(item.id)} title="Estimate landing cost (price ÷ 3.3)">Est.</button>
                   </>
                 )}
                 {items.length > 1 && (
@@ -2288,7 +2390,14 @@ export default function AshleyDealCalculator() {
 
       {/* Sticky Calculate Button */}
       <div className="sticky-bottom">
-        <button className="calc-btn-enhanced" onClick={calculate}>
+        <button
+          className={`calc-btn-enhanced${calcPulse ? ' calc-btn-pulse' : ''}`}
+          onClick={() => {
+            setCalcPulse(true);
+            setTimeout(() => setCalcPulse(false), 300);
+            calculate();
+          }}
+        >
           {mode === 'quote' ? 'Calculate Quote' : mode === 'margin' ? 'Check Margin' : 'Analyze OTD'}
         </button>
       </div>
@@ -2297,7 +2406,6 @@ export default function AshleyDealCalculator() {
       {showResults && (
         <div className="result-overlay" onClick={resetForm}>
           <div className="result-card" onClick={e => e.stopPropagation()}>
-            <div className="sheet-handle" />
             <div className="sheet-header">
               <div className="sheet-title">
                 {mode === 'quote' ? 'Your Quote' : mode === 'margin' ? 'Margin Analysis' : 'OTD Analysis'}
@@ -3048,6 +3156,18 @@ export default function AshleyDealCalculator() {
                     {entry.label || 'Unnamed deal'} • {entry.itemCount} item{entry.itemCount !== 1 ? 's' : ''}
                     {entry.noTaxPromo ? ' • No-Tax' : ''}{Number(entry.delivery) > 0 ? ` • $${entry.delivery} delivery` : ''}
                   </div>
+                  {(() => {
+                    const entryItems = (entry.items || []);
+                    const totalLanding = entryItems.reduce((s, i) => s + parseMoney(i.landingCost) * (parseInt(i.qty) || 1), 0);
+                    const totalInvoice = entryItems.reduce((s, i) => s + parseMoney(i.price) * (parseInt(i.qty) || 1), 0);
+                    const margin = totalInvoice > 0 && totalLanding > 0 ? calculateMargin(totalInvoice, totalLanding) : null;
+                    return (totalInvoice > 0 || margin !== null) ? (
+                      <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: 4, display: 'flex', gap: 8 }}>
+                        {totalInvoice > 0 && <span>Total: {formatMoney(totalInvoice)}</span>}
+                        {margin !== null && <span style={{ color: getMarginColor(margin), fontWeight: 600 }}>Margin: {margin.toFixed(1)}%</span>}
+                      </div>
+                    ) : null;
+                  })()}
                 </div>
               ))
             )}
