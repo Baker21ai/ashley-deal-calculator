@@ -659,6 +659,7 @@ export default function AshleyDealCalculator() {
     <div className="app">
       <style>{`
         * { box-sizing: border-box; }
+        button, .pill, .chip { touch-action: manipulation; }
         :root {
           --font-body: "Sora", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
           --font-display: "DM Serif Display", "Times New Roman", serif;
@@ -1119,6 +1120,7 @@ export default function AshleyDealCalculator() {
         .sheet-content {
           padding: 12px 16px 20px;
           max-height: 78vh;
+          max-height: 78dvh;
           overflow: auto;
           overscroll-behavior: contain;
           padding-bottom: calc(20px + env(safe-area-inset-bottom));
@@ -1832,7 +1834,7 @@ export default function AshleyDealCalculator() {
           padding: 8px 12px;
           border: 1px solid var(--line);
           border-radius: var(--radius-sm);
-          font-size: var(--text-sm);
+          font-size: 16px;
           min-height: 36px;
           background: var(--bg);
           color: var(--text);
@@ -1993,7 +1995,7 @@ export default function AshleyDealCalculator() {
         /* Toast notification */
         .toast {
           position: fixed;
-          bottom: 100px;
+          bottom: calc(100px + env(safe-area-inset-bottom));
           left: 50%;
           transform: translateX(-50%);
           background: #333;
