@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import CoachPanel from './CoachPanel.jsx';
 import { isOnboarded } from './onboarding.js';
 
-export default function CoachBubble({ calcSnapshot, applyPatch }) {
+export default function CoachBubble({ calcSnapshot, calcRefs }) {
   const [open, setOpen] = useState(false);
   const [verdict, setVerdict] = useState(null);
   const [pulse, setPulse] = useState(() => !isOnboarded());
@@ -74,7 +74,7 @@ export default function CoachBubble({ calcSnapshot, applyPatch }) {
         open={open}
         onClose={() => setOpen(false)}
         calcSnapshot={calcSnapshot}
-        applyPatch={applyPatch}
+        calcRefs={calcRefs}
         onVerdict={setVerdict}
       />
     </>

@@ -19,7 +19,7 @@ export async function postCoach({ messages, dealState, knowledgeBase, mode, next
   });
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
+  const timer = setTimeout(() => controller.abort(), 11000);
 
   try {
     const resp = await fetch(ENDPOINT, {

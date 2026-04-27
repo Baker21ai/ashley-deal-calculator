@@ -1,6 +1,6 @@
 import { useState, useLayoutEffect, useMemo, useEffect, useRef, useCallback } from 'react';
 import CoachBubble from './src/CoachBubble.jsx';
-import { dealSnapshot, mergePatch } from './src/dialogueManager.js';
+import { dealSnapshot } from './src/dialogueManager.js';
 
 const TAX_RATE = 9.125;
 const STORAGE_KEY = 'ashley-calculator-state';
@@ -671,16 +671,47 @@ export default function AshleyDealCalculator() {
     [items, salePercent, noTaxPromo, priceType, delivery, includeProtection, overallMargin, customerTotal, subtotal]
   );
 
-  const applyPatch = useCallback((patch) => {
-    const settings = { salePercent, noTaxPromo, priceType, delivery, includeProtection };
-    const next = mergePatch(items, settings, patch);
-    setItems(next.items);
-    if (next.settings.salePercent !== salePercent) setSalePercent(next.settings.salePercent);
-    if (next.settings.noTaxPromo !== noTaxPromo) setNoTaxPromo(next.settings.noTaxPromo);
-    if (next.settings.priceType !== priceType) setPriceType(next.settings.priceType);
-    if (next.settings.delivery !== delivery) setDelivery(String(next.settings.delivery));
-    if (next.settings.includeProtection !== includeProtection) setIncludeProtection(next.settings.includeProtection);
-  }, [items, salePercent, noTaxPromo, priceType, delivery, includeProtection]);
+  const setItemFields = useCallback((index, fields) => {
+    setItems((prev) => {
+      const next = [...prev];
+      // Add new empty rows up to the requested index
+      while (next.length <= index) {
+        next.push(createEmptyItem(Date.now() + next.length));
+      }
+      const target = next[index];
+      next[index] = {
+        ...target,
+        ...(fields.name != null ? { name: fields.name } : {}),
+        ...(fields.price != null ? { price: String(fields.price), marginSet: false, selectedMargin: null, originalPrice: undefined } : {}),
+        ...(fields.qty != null ? { qty: Number(fields.qty) || 1 } : {}),
+      };
+      return next;
+    });
+  }, []);
+
+  const estimateLandingByIndex = useCallback((index) => {
+    const item = items[index];
+    if (item) {
+      // Run on next tick so any preceding setItemFields has flushed
+      setTimeout(() => estimateLandingCost(item.id), 0);
+    }
+  }, [items]);
+
+  const clearItems = useCallback(() => {
+    setItems([createEmptyItem(Date.now())]);
+  }, []);
+
+  const calcRefs = useMemo(() => ({
+    setItemFields,
+    estimateLandingByIndex,
+    setDelivery,
+    setNoTaxPromo,
+    setSalePercent,
+    setPriceType,
+    setIncludeProtection,
+    setAllItemsToMargin,
+    clearItems,
+  }), [setItemFields, estimateLandingByIndex, setAllItemsToMargin, clearItems]);
 
   return (
     <div className="app">
@@ -2848,7 +2879,7 @@ export default function AshleyDealCalculator() {
         <div className="toast">✓ Copied to clipboard</div>
       )}
 
-      <CoachBubble calcSnapshot={calcSnapshot} applyPatch={applyPatch} />
+      <CoachBubble calcSnapshot={calcSnapshot} calcRefs={calcRefs} />
     </div>
   );
 }
