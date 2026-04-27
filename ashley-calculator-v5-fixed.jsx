@@ -1,4 +1,6 @@
 import { useState, useLayoutEffect, useMemo, useEffect, useRef, useCallback } from 'react';
+import CoachBubble from './src/CoachBubble.jsx';
+import { dealSnapshot, mergePatch } from './src/dialogueManager.js';
 
 const TAX_RATE = 9.125;
 const STORAGE_KEY = 'ashley-calculator-state';
@@ -654,6 +656,31 @@ export default function AshleyDealCalculator() {
       : 'Prices should be entered before tax.',
     note: 'Below 47% margin -- stop and call a manager.',
   };
+
+  const calcSnapshot = useMemo(
+    () => dealSnapshot(items, {
+      salePercent,
+      noTaxPromo,
+      priceType,
+      delivery,
+      includeProtection,
+      overallMargin,
+      customerTotal,
+      subtotal,
+    }),
+    [items, salePercent, noTaxPromo, priceType, delivery, includeProtection, overallMargin, customerTotal, subtotal]
+  );
+
+  const applyPatch = useCallback((patch) => {
+    const settings = { salePercent, noTaxPromo, priceType, delivery, includeProtection };
+    const next = mergePatch(items, settings, patch);
+    setItems(next.items);
+    if (next.settings.salePercent !== salePercent) setSalePercent(next.settings.salePercent);
+    if (next.settings.noTaxPromo !== noTaxPromo) setNoTaxPromo(next.settings.noTaxPromo);
+    if (next.settings.priceType !== priceType) setPriceType(next.settings.priceType);
+    if (next.settings.delivery !== delivery) setDelivery(String(next.settings.delivery));
+    if (next.settings.includeProtection !== includeProtection) setIncludeProtection(next.settings.includeProtection);
+  }, [items, salePercent, noTaxPromo, priceType, delivery, includeProtection]);
 
   return (
     <div className="app">
@@ -2820,6 +2847,8 @@ export default function AshleyDealCalculator() {
       {copyFeedback && (
         <div className="toast">✓ Copied to clipboard</div>
       )}
+
+      <CoachBubble calcSnapshot={calcSnapshot} applyPatch={applyPatch} />
     </div>
   );
 }

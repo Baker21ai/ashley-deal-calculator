@@ -16,12 +16,31 @@ npm run preview  # Preview production build
 
 ## Architecture
 
-**Single-component application:**
-- `ashley-calculator-v5-fixed.jsx` - Main component containing all UI and business logic (~1,500 lines)
+**Main calculator:**
+- `ashley-calculator-v5-fixed.jsx` - Main component containing all calculator UI and business logic
 - `src/main.jsx` - Entry point that mounts the React app
 - `index.html` - HTML shell
 
-**Tech stack:** React 18 + Vite 5, no external CSS libraries (inline styles only).
+**AI sales coach (floating bubble):**
+- `src/CoachBubble.jsx` - Always-visible floating button + verdict badge
+- `src/CoachPanel.jsx` - Chat surface with mic, transcript, knowledge-base editor, replay-tour
+- `src/voiceIO.js` - Web Speech API wrappers (STT + TTS, browser-native, free)
+- `src/dialogueManager.js` - Slot-filling state machine + patch merger
+- `src/coachClient.js` - Fetch helper that talks to the Netlify function
+- `src/onboarding.js` - First-run scripted dialogue (no LLM needed)
+- `netlify/functions/coach.js` - Server-side proxy to Gemini 2.5 Flash. Keeps the API key off the client (Feb 2026 disclosures showed client-side Gemini keys getting drained for $80k+).
+
+**Tech stack:** React 18 + Vite 5 + Netlify Functions. No external CSS libraries (inline styles only).
+
+## AI coach setup
+
+Set in Netlify dashboard → Site → Environment:
+- `GEMINI_API_KEY` (required) — get a free key at https://aistudio.google.com/apikey
+- `COACH_ALLOWED_ORIGINS` (optional, recommended in prod) — comma-separated allowed Referer prefixes, e.g. `https://your-site.netlify.app`
+
+For local dev: `cp .env.example .env`, fill in `GEMINI_API_KEY`, then `netlify dev`.
+
+The store-specific knowledge base (SOPs, current promos, financing terms, manager scripts) lives in browser `localStorage` under `ashley.kb`. Edit it from the coach panel via the 📚 icon. It is per-browser; v1 has no cross-device sync.
 
 ## Business Logic Constants
 
