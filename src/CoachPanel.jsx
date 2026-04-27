@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { postCoach } from './coachClient.js';
-import { dealSnapshot, nextMissingSlot, mergePatch, inferGoal } from './dialogueManager.js';
+import { dealSnapshot, nextMissingSlot, applyActions, inferGoal } from './dialogueManager.js';
 import { sttSupported, ttsSupported, createRecognizer, speak, stopSpeaking } from './voiceIO.js';
-import { ONBOARDING_SCRIPT, isOnboarded, markOnboarded } from './onboarding.js';
+import { isOnboarded, markOnboarded } from './onboarding.js';
 
 const KB_KEY = 'ashley.kb';
 const TTS_KEY = 'ashley.tts.enabled';
@@ -41,11 +41,16 @@ function loadTTS() {
   }
 }
 
+function moneyFmt(n) {
+  if (n == null || isNaN(n)) return null;
+  return `$${Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
 export default function CoachPanel({
   open,
   onClose,
   calcSnapshot,
-  applyPatch,
+  calcRefs,
   onVerdict,
 }) {
   const [messages, setMessages] = useState([]);
@@ -53,86 +58,77 @@ export default function CoachPanel({
   const [listening, setListening] = useState(false);
   const [interim, setInterim] = useState('');
   const [busy, setBusy] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(loadTTS);
   const [kb, setKb] = useState(loadKB);
   const [showKb, setShowKb] = useState(false);
-  const [showOnboarding, setShowOnboarding] = useState(() => !isOnboarded());
-  const [onboardingStep, setOnboardingStep] = useState(0);
+  const seededRef = useRef(false);
 
   const recognizerRef = useRef(null);
   const transcriptRef = useRef(null);
 
-  // Run onboarding script when first opened
-  useEffect(() => {
-    if (!open || !showOnboarding) return;
-    if (onboardingStep === 0 && messages.length === 0) {
-      const first = ONBOARDING_SCRIPT[0];
-      setMessages([{ role: 'assistant', text: first.text }]);
-      if (ttsEnabled) speak(first.tts || first.text);
-      setOnboardingStep(1);
-    }
-  }, [open, showOnboarding, onboardingStep, messages.length, ttsEnabled]);
-
   // Persist KB
   useEffect(() => {
-    try {
-      window.localStorage.setItem(KB_KEY, kb);
-    } catch {
-      // ignore
-    }
+    try { window.localStorage.setItem(KB_KEY, kb); } catch {}
   }, [kb]);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(TTS_KEY, ttsEnabled ? '1' : '0');
-    } catch {
-      // ignore
-    }
+    try { window.localStorage.setItem(TTS_KEY, ttsEnabled ? '1' : '0'); } catch {}
   }, [ttsEnabled]);
 
-  // Auto-scroll transcript
+  // Auto-scroll
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: 999999, behavior: 'smooth' });
   }, [messages, interim]);
 
-  // Stop TTS when panel closes
+  // Stop TTS on close
   useEffect(() => {
     if (!open) stopSpeaking();
   }, [open]);
 
-  const advanceOnboarding = (userText) => {
-    const next = onboardingStep;
-    setMessages((prev) => [...prev, { role: 'user', text: userText }]);
-    if (next >= ONBOARDING_SCRIPT.length) {
-      finishOnboarding();
+  // First open: send a seed turn so the AI greets and (if first time) onboards.
+  useEffect(() => {
+    if (!open || seededRef.current) return;
+    if (messages.length > 0) {
+      seededRef.current = true;
       return;
     }
-    const step = ONBOARDING_SCRIPT[next];
-    setMessages((prev) => [...prev, { role: 'assistant', text: step.text }]);
-    if (ttsEnabled) speak(step.tts || step.text);
-    setOnboardingStep(next + 1);
-    if (step.final) finishOnboarding();
-  };
+    seededRef.current = true;
+    const firstTime = !isOnboarded();
+    sendToAI('', { mode: firstTime ? 'onboarding' : 'capabilities', silent: true });
+    if (firstTime) markOnboarded();
+    // we send a silent (empty) turn so the AI speaks first
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
-  const finishOnboarding = () => {
-    markOnboarded();
-    setShowOnboarding(false);
-  };
-
-  const sendToAI = async (userText) => {
+  const sendToAI = async (userText, opts = {}) => {
+    const { mode: forcedMode, silent } = opts;
     const goal = inferGoal(calcSnapshot);
-    const slot = nextMissingSlot(calcSnapshot, goal === 'margin_check' ? 'otd' : 'quote');
-    const newMessages = [...messages, { role: 'user', text: userText }];
-    setMessages(newMessages);
+    const slot = nextMissingSlot(calcSnapshot);
+    const turnText = userText && userText.trim();
+    const newMessages = silent
+      ? [...messages]
+      : [...messages, { role: 'user', text: turnText }];
+    if (!silent) setMessages(newMessages);
+
     setBusy(true);
+    setCollapsed(false);
+
     const resp = await postCoach({
-      messages: newMessages,
+      messages: silent ? [{ role: 'user', text: '(start)' }] : newMessages,
       dealState: calcSnapshot,
       knowledgeBase: kb,
-      mode: goal,
+      mode: forcedMode || goal,
       nextMissingSlot: slot,
     });
+
     setBusy(false);
+
+    let didApply = false;
+    if (resp.actions && Array.isArray(resp.actions)) {
+      didApply = applyActions(resp.actions, calcRefs);
+    }
+
     setMessages((prev) => [
       ...prev,
       {
@@ -141,12 +137,15 @@ export default function CoachPanel({
         verdict: resp.verdict,
         usedEstimate: resp.usedEstimate,
         managerCopy: resp.managerCopy,
-        applied: Boolean(resp.calculatorPatch),
+        applied: didApply,
+        finishReason: resp.finishReason,
       },
     ]);
     if (ttsEnabled && resp.tts) speak(resp.tts);
-    if (resp.calculatorPatch) applyPatch(resp.calculatorPatch);
-    if (resp.verdict || resp.reply) onVerdict?.({ text: resp.reply, verdict: resp.verdict });
+    if (resp.reply) onVerdict?.({ text: resp.reply, verdict: resp.verdict });
+
+    // Auto-collapse so calculator is visible while rep digests the reply.
+    setTimeout(() => setCollapsed(true), 300);
   };
 
   const handleSubmit = (text) => {
@@ -154,10 +153,6 @@ export default function CoachPanel({
     if (!trimmed || busy) return;
     setInput('');
     setInterim('');
-    if (showOnboarding) {
-      advanceOnboarding(trimmed);
-      return;
-    }
     sendToAI(trimmed);
   };
 
@@ -190,12 +185,7 @@ export default function CoachPanel({
   };
 
   const stopListening = () => {
-    if (!recognizerRef.current) return;
-    try {
-      recognizerRef.current.stop();
-    } catch {
-      // ignore
-    }
+    try { recognizerRef.current?.stop(); } catch {}
   };
 
   const toggleMic = () => (listening ? stopListening() : startListening());
@@ -205,13 +195,24 @@ export default function CoachPanel({
     sendToAI('Explain that in one or two sentences - why?');
   };
 
-  const replayOnboarding = () => {
-    setShowOnboarding(true);
-    setOnboardingStep(0);
-    setMessages([]);
+  const askCapabilities = () => {
+    if (busy) return;
+    sendToAI('What can you do?', { mode: 'capabilities' });
   };
 
   if (!open) return null;
+
+  // Pull a few status chips from the live calculator state to show inline.
+  const margin = calcSnapshot?.overallMargin;
+  const customer = calcSnapshot?.customerTotal;
+  const item0 = calcSnapshot?.items?.[0];
+  const chips = [];
+  if (item0?.name) chips.push(item0.name);
+  if (item0?.price) chips.push(`$${item0.price}`);
+  if (margin != null) chips.push(`Margin ${Math.round(margin)}%`);
+  if (customer != null) chips.push(`Total ${moneyFmt(customer)}`);
+
+  const lastAi = [...messages].reverse().find((m) => m.role === 'assistant');
 
   return (
     <div
@@ -219,11 +220,12 @@ export default function CoachPanel({
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(0,0,0,0.5)',
+        background: collapsed ? 'transparent' : 'rgba(0,0,0,0.5)',
         zIndex: 9999,
         display: 'flex',
         alignItems: 'flex-end',
         justifyContent: 'center',
+        pointerEvents: collapsed ? 'none' : 'auto',
       }}
     >
       <div
@@ -231,7 +233,8 @@ export default function CoachPanel({
         style={{
           width: '100%',
           maxWidth: 520,
-          maxHeight: '85vh',
+          maxHeight: collapsed ? 88 : '85vh',
+          minHeight: collapsed ? 64 : 360,
           background: '#161920',
           borderTopLeftRadius: 20,
           borderTopRightRadius: 20,
@@ -241,104 +244,126 @@ export default function CoachPanel({
           color: '#F5F0EB',
           fontFamily: '"Sora", -apple-system, sans-serif',
           paddingBottom: 'env(safe-area-inset-bottom, 0)',
+          pointerEvents: 'auto',
+          transition: 'max-height 0.2s ease, min-height 0.2s ease',
+          boxShadow: '0 -10px 30px rgba(0,0,0,0.4)',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>Coach</div>
-            <div style={{ fontSize: 11, color: '#8B91A0' }}>
-              {busy ? 'thinking…' : listening ? 'listening…' : 'tap mic and talk'}
+        {collapsed && lastAi ? (
+          <div
+            onClick={() => setCollapsed(false)}
+            style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+          >
+            <VerdictDot verdict={lastAi.verdict} />
+            <div style={{ flex: 1, fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {lastAi.text}
             </div>
-          </div>
-          {ttsSupported && (
-            <button
-              onClick={() => {
-                stopSpeaking();
-                setTtsEnabled((v) => !v);
-              }}
-              title={ttsEnabled ? 'Mute voice' : 'Unmute voice'}
-              style={iconBtn}
-            >
-              {ttsEnabled ? '🔊' : '🔇'}
-            </button>
-          )}
-          <button onClick={() => setShowKb((v) => !v)} title="Knowledge base" style={iconBtn}>📚</button>
-          <button onClick={replayOnboarding} title="Replay tour" style={iconBtn}>↻</button>
-          <button onClick={onClose} title="Close" style={iconBtn}>✕</button>
-        </div>
-
-        {showKb ? (
-          <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
-            <div style={{ fontSize: 13, color: '#8B91A0', marginBottom: 8 }}>
-              Anything you paste here is sent to the AI as Ashley's process knowledge.
-              SOPs, current promos, financing terms, manager scripts, anything store-specific.
-            </div>
-            <textarea
-              value={kb}
-              onChange={(e) => setKb(e.target.value)}
-              style={{
-                width: '100%',
-                minHeight: 280,
-                background: '#0F1117',
-                color: '#F5F0EB',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 10,
-                padding: 12,
-                fontSize: 13,
-                fontFamily: 'inherit',
-                resize: 'vertical',
-              }}
-            />
-            <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowKb(false)} style={primaryBtn}>Done</button>
-            </div>
+            <button onClick={(e) => { e.stopPropagation(); setCollapsed(false); }} style={iconBtn}>▲</button>
+            <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={iconBtn}>✕</button>
           </div>
         ) : (
           <>
-            <div ref={transcriptRef} style={{ padding: 12, overflowY: 'auto', flex: 1 }}>
-              {messages.length === 0 && (
-                <div style={{ color: '#8B91A0', fontSize: 13, padding: 12, textAlign: 'center' }}>
-                  Say something like "Hartford sectional, customer wants two grand out the door."
+            <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>Coach</div>
+                <div style={{ fontSize: 11, color: '#8B91A0' }}>
+                  {busy ? 'thinking…' : listening ? 'listening…' : 'tap mic and talk'}
                 </div>
+              </div>
+              {ttsSupported && (
+                <button onClick={() => { stopSpeaking(); setTtsEnabled((v) => !v); }} title={ttsEnabled ? 'Mute voice' : 'Unmute voice'} style={iconBtn}>
+                  {ttsEnabled ? '🔊' : '🔇'}
+                </button>
               )}
-              {messages.map((m, i) => (
-                <Message key={i} m={m} />
-              ))}
-              {interim && (
-                <div style={{ ...bubbleStyle('user'), opacity: 0.5 }}>{interim}…</div>
-              )}
-              {busy && <div style={{ ...bubbleStyle('assistant'), opacity: 0.6 }}>…</div>}
+              <button onClick={() => setShowKb((v) => !v)} title="Knowledge base" style={iconBtn}>📚</button>
+              <button onClick={() => setCollapsed(true)} title="Collapse" style={iconBtn}>▼</button>
+              <button onClick={onClose} title="Close" style={iconBtn}>✕</button>
             </div>
 
-            <div style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 8, alignItems: 'center' }}>
-              {sttSupported ? (
-                <button onClick={toggleMic} style={micBtn(listening)} title={listening ? 'Stop' : 'Tap to talk'}>
-                  {listening ? '■' : '🎤'}
-                </button>
-              ) : (
-                <div style={{ fontSize: 11, color: '#8B91A0', padding: '0 8px' }}>(voice not supported - type below)</div>
-              )}
-              <input
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmit(input)}
-                placeholder="or type…"
-                style={{
-                  flex: 1,
-                  background: '#0F1117',
-                  color: '#F5F0EB',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  borderRadius: 10,
-                  padding: '10px 12px',
-                  fontSize: 14,
-                  fontFamily: 'inherit',
-                }}
-              />
-              <button onClick={() => handleSubmit(input)} style={primaryBtn} disabled={busy || !input.trim()}>
-                Send
-              </button>
-              <button onClick={askWhy} style={iconBtn} title="Explain">Why?</button>
-            </div>
+            {showKb ? (
+              <div style={{ padding: 16, overflowY: 'auto', flex: 1 }}>
+                <div style={{ fontSize: 13, color: '#8B91A0', marginBottom: 8 }}>
+                  Anything you paste here is sent to the AI as Ashley's process knowledge.
+                  SOPs, current promos, financing terms, manager scripts, anything store-specific.
+                </div>
+                <textarea
+                  value={kb}
+                  onChange={(e) => setKb(e.target.value)}
+                  style={{
+                    width: '100%',
+                    minHeight: 280,
+                    background: '#0F1117',
+                    color: '#F5F0EB',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: 10,
+                    padding: 12,
+                    fontSize: 13,
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                  }}
+                />
+                <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setShowKb(false)} style={primaryBtn}>Done</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                {chips.length > 0 && (
+                  <div style={{ padding: '8px 12px', display: 'flex', gap: 6, flexWrap: 'wrap', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    {chips.map((c, i) => (
+                      <span key={i} style={chipStyle}>{c}</span>
+                    ))}
+                  </div>
+                )}
+
+                <div ref={transcriptRef} style={{ padding: 12, overflowY: 'auto', flex: 1 }}>
+                  {messages.length === 0 && !busy && (
+                    <div style={{ color: '#8B91A0', fontSize: 13, padding: 12, textAlign: 'center' }}>
+                      <div>Say or type something like:</div>
+                      <div style={{ marginTop: 6, color: '#F5F0EB' }}>
+                        "Hartford sectional, customer wants two grand out the door."
+                      </div>
+                      <button onClick={askCapabilities} style={{ ...secondaryBtn, marginTop: 16 }}>
+                        What can you do?
+                      </button>
+                    </div>
+                  )}
+                  {messages.map((m, i) => <Message key={i} m={m} />)}
+                  {interim && <div style={{ ...bubbleStyle('user'), opacity: 0.5 }}>{interim}…</div>}
+                  {busy && <div style={{ ...bubbleStyle('assistant'), opacity: 0.6 }}>…</div>}
+                </div>
+
+                <div style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 8, alignItems: 'center' }}>
+                  {sttSupported ? (
+                    <button onClick={toggleMic} style={micBtn(listening)} title={listening ? 'Stop' : 'Tap to talk'}>
+                      {listening ? '■' : '🎤'}
+                    </button>
+                  ) : (
+                    <div style={{ fontSize: 11, color: '#8B91A0', padding: '0 8px' }}>(voice not supported - type below)</div>
+                  )}
+                  <input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSubmit(input)}
+                    placeholder="or type…"
+                    style={{
+                      flex: 1,
+                      background: '#0F1117',
+                      color: '#F5F0EB',
+                      border: '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                      fontSize: 14,
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                  <button onClick={() => handleSubmit(input)} style={primaryBtn} disabled={busy || !input.trim()}>
+                    Send
+                  </button>
+                  <button onClick={askWhy} style={iconBtn} title="Explain longer">Why?</button>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>
@@ -346,8 +371,16 @@ export default function CoachPanel({
   );
 }
 
+function VerdictDot({ verdict }) {
+  const color =
+    verdict === 'GREAT' ? '#34D399' :
+    verdict === 'OK' ? '#FBBF24' :
+    verdict === 'BELOW_FLOOR' ? '#F87171' :
+    '#8B91A0';
+  return <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 5, background: color, flexShrink: 0 }} />;
+}
+
 function Message({ m }) {
-  const isAI = m.role === 'assistant';
   const verdictColor =
     m.verdict === 'GREAT' ? '#34D399' :
     m.verdict === 'OK' ? '#FBBF24' :
@@ -360,8 +393,11 @@ function Message({ m }) {
         )}
         {m.text}
       </div>
-      {m.applied && <div style={{ fontSize: 11, color: '#34D399', marginTop: 4 }}>✓ filled in calculator</div>}
+      {m.applied && <div style={{ fontSize: 11, color: '#34D399', marginTop: 4 }}>✓ updated calculator</div>}
       {m.usedEstimate && <div style={{ fontSize: 11, color: '#FBBF24', marginTop: 4 }}>↳ estimated cost - verify before close</div>}
+      {m.finishReason === 'MAX_TOKENS' && (
+        <div style={{ fontSize: 11, color: '#F87171', marginTop: 4 }}>(reply was truncated)</div>
+      )}
       {m.managerCopy && (
         <div style={{ marginTop: 6, padding: 8, background: 'rgba(255,255,255,0.04)', borderRadius: 8, fontSize: 12, fontFamily: 'monospace' }}>
           <div style={{ fontSize: 10, color: '#8B91A0', marginBottom: 4 }}>For your manager:</div>
@@ -392,6 +428,16 @@ function bubbleStyle(role) {
   };
 }
 
+const chipStyle = {
+  background: 'rgba(255,255,255,0.06)',
+  color: '#F5F0EB',
+  border: '1px solid rgba(255,255,255,0.08)',
+  borderRadius: 999,
+  padding: '4px 10px',
+  fontSize: 11,
+  fontWeight: 600,
+};
+
 const iconBtn = {
   background: 'none',
   border: 'none',
@@ -408,6 +454,17 @@ const primaryBtn = {
   borderRadius: 10,
   padding: '10px 16px',
   fontSize: 14,
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+const secondaryBtn = {
+  background: 'rgba(255,255,255,0.06)',
+  color: '#F5F0EB',
+  border: '1px solid rgba(255,255,255,0.1)',
+  borderRadius: 10,
+  padding: '8px 14px',
+  fontSize: 13,
   fontWeight: 600,
   cursor: 'pointer',
 };
