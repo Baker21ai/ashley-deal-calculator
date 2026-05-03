@@ -45,36 +45,49 @@ export function inferGoal(snapshot) {
 // Apply an ordered list of actions from the LLM by calling the calculator's
 // existing setters and helpers. calcRefs is supplied by the parent component
 // and contains the live setters + helper functions.
+// Returns { didAnything, changedKeys } where changedKeys is a list of
+// dot-paths like "items.0.price" used for the ghost-flash highlight.
 export function applyActions(actions, calcRefs) {
-  if (!Array.isArray(actions) || actions.length === 0) return false;
+  if (!Array.isArray(actions) || actions.length === 0) {
+    return { didAnything: false, changedKeys: [] };
+  }
   let didAnything = false;
+  const changedKeys = [];
 
   for (const a of actions) {
     if (!a || !a.type) continue;
     try {
       switch (a.type) {
-        case 'set_item':
+        case 'set_item': {
+          const idx = Number(a.index ?? 0);
           calcRefs.setItemFields(
-            Number(a.index ?? 0),
+            idx,
             {
               name: a.name,
               price: a.price != null ? String(a.price) : undefined,
               qty: a.qty != null ? Number(a.qty) || 1 : undefined,
             }
           );
+          if (a.name != null) changedKeys.push(`items.${idx}.name`);
+          if (a.price != null) changedKeys.push(`items.${idx}.price`);
+          if (a.qty != null) changedKeys.push(`items.${idx}.qty`);
           didAnything = true;
           break;
+        }
 
-        case 'estimate_landing':
-          // Run on the next tick so any preceding set_item has flushed.
-          calcRefs.estimateLandingByIndex(Number(a.index ?? 0));
+        case 'estimate_landing': {
+          const idx = Number(a.index ?? 0);
+          calcRefs.estimateLandingByIndex(idx);
+          changedKeys.push(`items.${idx}.landingCost`);
           didAnything = true;
           break;
+        }
 
         case 'set_delivery': {
           const v = String(a.value ?? '135');
           if (VALID_DELIVERY.includes(v) || /^\d+(\.\d+)?$/.test(v)) {
             calcRefs.setDelivery(v);
+            changedKeys.push('delivery');
             didAnything = true;
           }
           break;
@@ -82,6 +95,7 @@ export function applyActions(actions, calcRefs) {
 
         case 'set_no_tax_promo':
           calcRefs.setNoTaxPromo(a.value === true || a.value === 'true');
+          changedKeys.push('noTaxPromo');
           didAnything = true;
           break;
 
@@ -89,6 +103,7 @@ export function applyActions(actions, calcRefs) {
           const n = Number(a.value);
           if ([30, 35, 40].includes(n)) {
             calcRefs.setSalePercent(n);
+            changedKeys.push('salePercent');
             didAnything = true;
           }
           break;
@@ -97,12 +112,14 @@ export function applyActions(actions, calcRefs) {
         case 'set_price_type':
           if (a.value === 'sale' || a.value === 'tag') {
             calcRefs.setPriceType(a.value);
+            changedKeys.push('priceType');
             didAnything = true;
           }
           break;
 
         case 'set_protection':
           calcRefs.setIncludeProtection(a.value === true || a.value === 'true');
+          changedKeys.push('includeProtection');
           didAnything = true;
           break;
 
@@ -110,6 +127,7 @@ export function applyActions(actions, calcRefs) {
           const n = Number(a.value);
           if ([47, 48, 49, 50].includes(n)) {
             calcRefs.setAllItemsToMargin(n);
+            changedKeys.push('items.*.price');
             didAnything = true;
           }
           break;
@@ -117,6 +135,7 @@ export function applyActions(actions, calcRefs) {
 
         case 'clear_items':
           calcRefs.clearItems();
+          changedKeys.push('items');
           didAnything = true;
           break;
 
@@ -129,5 +148,5 @@ export function applyActions(actions, calcRefs) {
     }
   }
 
-  return didAnything;
+  return { didAnything, changedKeys };
 }

@@ -9,13 +9,14 @@ const SAFE_FALLBACK = {
   stage: 'freeform',
 };
 
-export async function postCoach({ messages, dealState, knowledgeBase, mode, nextMissingSlot }) {
+export async function postCoach({ messages, dealState, knowledgeBase, mode, nextMissingSlot, image }) {
   const payload = JSON.stringify({
     messages,
     dealState,
     knowledgeBase: knowledgeBase || '',
     mode: mode || 'freeform',
     nextMissingSlot: nextMissingSlot || '',
+    image: image || null,
   });
 
   const controller = new AbortController();

@@ -288,8 +288,17 @@ export async function handler(event) {
   const knowledgeBase = typeof body.knowledgeBase === 'string' ? body.knowledgeBase.slice(0, 8000) : '';
   const mode = body.mode || 'freeform';
   const nextMissingSlot = typeof body.nextMissingSlot === 'string' ? body.nextMissingSlot : '';
+  // Optional inline image for camera tag-scan. base64 only, max ~4MB.
+  const image = body.image && typeof body.image === 'object' ? body.image : null;
 
-  const systemText = `${SYSTEM_PROMPT}
+  const visionHint = image
+    ? `\n\nVISION MODE: The next user turn includes a photo of an Ashley price tag.
+Read the tag, extract item name, retail/tag price, and (if visible) the sale
+percent (typically 30/35/40). Emit set_item action(s) with what you see.
+If unclear, ask one short clarifying question and emit no action.`
+    : '';
+
+  const systemText = `${SYSTEM_PROMPT}${visionHint}
 
 === KNOWLEDGE BASE (from store management) ===
 ${knowledgeBase || '(none provided yet - if asked about a policy, say "ask your manager")'}
@@ -312,6 +321,17 @@ ${knowledgeBase || '(none provided yet - if asked about a policy, say "ask your 
     contents.push({
       role: m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: String(m.text) }],
+    });
+  }
+
+  // If a vision image came in, append it as a final user turn alongside any text.
+  if (image && image.data && image.mimeType) {
+    contents.push({
+      role: 'user',
+      parts: [
+        { text: image.caption ? String(image.caption) : 'Read this Ashley price tag and fill the calculator.' },
+        { inline_data: { mime_type: String(image.mimeType), data: String(image.data) } },
+      ],
     });
   }
 
