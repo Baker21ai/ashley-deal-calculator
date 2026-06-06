@@ -769,7 +769,12 @@ export default function AshleyDealCalculator() {
         }
 
         .app {
-          min-height: 100vh;
+          height: 100vh;
+          height: 100dvh;
+          overflow-y: auto;
+          overflow-x: hidden;
+          overscroll-behavior-y: contain;
+          -webkit-overflow-scrolling: touch;
           background: var(--bg-deep);
           color: var(--text);
           padding: 16px;

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Ashley Deal Calculator</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,6 +15,18 @@
         margin: 0;
         padding: 0;
         box-sizing: border-box;
+      }
+      /* Lock the page to the screen: prevent whole-page swipe / rubber-band scroll */
+      html, body {
+        height: 100%;
+        width: 100%;
+        position: fixed;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
+      #root {
+        height: 100%;
+        overflow: hidden;
       }
     </style>
   </head>
