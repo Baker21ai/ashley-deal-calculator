@@ -375,22 +375,37 @@ export default function AshleyDealCalculator() {
     clearError('price');
   };
 
-  // Set ALL items to a target margin at once
+  // Set ALL items to a target margin at once.
+  // Tapping the same margin again restores every item's original price (toggle off).
   const setAllItemsToMargin = (targetMargin) => {
+    const itemsWithLanding = items.filter(i => parseMoney(i.landingCost) > 0);
+    const alreadyAtThisMargin = itemsWithLanding.length > 0 &&
+      itemsWithLanding.every(i => i.selectedMargin === targetMargin);
+
     setItems(items.map(item => {
       const landingCost = parseMoney(item.landingCost);
-      if (landingCost > 0) {
-        const originalPrice = item.marginSet ? item.originalPrice : item.price;
-        const invoicePrice = priceForMargin(landingCost, targetMargin);
+      if (landingCost <= 0) return item;
+
+      // Toggle off: restore the original (standard) price
+      if (alreadyAtThisMargin) {
         return {
           ...item,
-          price: invoicePrice.toFixed(2),
-          marginSet: true,
-          selectedMargin: targetMargin,
-          originalPrice: originalPrice,
+          price: item.originalPrice !== undefined ? item.originalPrice : item.price,
+          marginSet: false,
+          selectedMargin: null,
+          originalPrice: undefined,
         };
       }
-      return item;
+
+      const originalPrice = item.marginSet ? item.originalPrice : item.price;
+      const invoicePrice = priceForMargin(landingCost, targetMargin);
+      return {
+        ...item,
+        price: invoicePrice.toFixed(2),
+        marginSet: true,
+        selectedMargin: targetMargin,
+        originalPrice: originalPrice,
+      };
     }));
   };
 
@@ -487,8 +502,8 @@ export default function AshleyDealCalculator() {
         borderBottom: highlight ? 'none' : `1px solid ${colors.primary[100]}`,
       }}
     >
-      <span style={{ color: colors.text.secondary, fontSize: '13px', fontWeight: highlight ? 600 : 400 }}>{label}</span>
-      <span style={{ fontWeight: 600, color: colors.text.primary, fontSize: large ? '18px' : '13px' }}>{value}</span>
+      <span style={{ color: colors.text.secondary, fontSize: '15px', fontWeight: highlight ? 600 : 400 }}>{label}</span>
+      <span style={{ fontWeight: 600, color: colors.text.primary, fontSize: large ? '20px' : '15px' }}>{value}</span>
     </div>
   );
 
@@ -754,7 +769,12 @@ export default function AshleyDealCalculator() {
         }
 
         .app {
-          min-height: 100vh;
+          height: 100vh;
+          height: 100dvh;
+          overflow-y: auto;
+          overflow-x: hidden;
+          overscroll-behavior-y: contain;
+          -webkit-overflow-scrolling: touch;
           background: var(--bg-deep);
           color: var(--text);
           padding: 16px;
@@ -1242,8 +1262,8 @@ export default function AshleyDealCalculator() {
           border-bottom: 1px solid var(--line);
         }
         .breakdown-row:last-child { border-bottom: none; }
-        .breakdown-label { color: var(--muted); font-size: 13px; }
-        .breakdown-value { font-weight: 600; color: var(--text); font-size: 13px; }
+        .breakdown-label { color: var(--muted); font-size: 15px; }
+        .breakdown-value { font-weight: 600; color: var(--text); font-size: 15px; }
         
         .margin-item {
           background: var(--surface-2);
@@ -1258,12 +1278,12 @@ export default function AshleyDealCalculator() {
           align-items: center;
           margin-bottom: 8px;
         }
-        .margin-item-name { font-weight: 600; color: var(--text); font-size: 14px; }
+        .margin-item-name { font-weight: 600; color: var(--text); font-size: 16px; }
         .margin-badge {
           padding: 4px 10px;
           border-radius: 12px;
-          font-size: 12px;
-          font-weight: 600;
+          font-size: 14px;
+          font-weight: 700;
         }
         
         .margin-prices {
@@ -1276,10 +1296,10 @@ export default function AshleyDealCalculator() {
           background: var(--bg);
           border: 1px solid var(--line);
           border-radius: 8px;
-          padding: 8px 4px;
+          padding: 10px 4px;
           text-align: center;
           transition: all 0.15s;
-          min-height: 48px;
+          min-height: 58px;
           cursor: pointer;
         }
         .margin-price-box:hover {
@@ -1294,8 +1314,8 @@ export default function AshleyDealCalculator() {
         .margin-price-box.current .margin-price-value {
           color: white;
         }
-        .margin-price-label { font-size: 10px; color: var(--muted); }
-        .margin-price-value { font-size: 13px; font-weight: 600; margin-top: 2px; color: var(--text); }
+        .margin-price-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+        .margin-price-value { font-size: 16px; font-weight: 700; margin-top: 3px; color: var(--text); }
         
         details.result-section {
           border: 1px solid var(--line);
@@ -1858,7 +1878,8 @@ export default function AshleyDealCalculator() {
           padding: 6px 4px;
           border: 1px solid var(--line);
           border-radius: var(--radius-sm);
-          font-size: var(--text-sm);
+          font-size: var(--text-md);
+          font-weight: 600;
           text-align: center;
           background: var(--bg);
           color: var(--text);
@@ -1890,8 +1911,8 @@ export default function AshleyDealCalculator() {
           padding: 8px 12px;
           border: 1px solid var(--line);
           border-radius: var(--radius-sm);
-          font-size: var(--text-sm);
-          min-height: 36px;
+          font-size: var(--text-md);
+          min-height: 38px;
           background: var(--bg);
           color: var(--text);
           min-width: 0;
@@ -2359,7 +2380,7 @@ export default function AshleyDealCalculator() {
                 {/* Set entire order to a margin target */}
                 {totalLandingCost > 0 && (
                   <div style={{ background: colors.primary[50], border: `1px solid ${colors.primary[200]}`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 700, color: colors.primary[400], marginBottom: '8px' }}>Set Entire Order to Margin</div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: colors.primary[400], marginBottom: '8px' }}>Set Entire Order to Margin</div>
                     <div className="margin-prices">
                       {[50, 49, 48, 47].map(target => (
                         <div
@@ -2373,8 +2394,10 @@ export default function AshleyDealCalculator() {
                         </div>
                       ))}
                     </div>
-                    <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '6px', textAlign: 'center' }}>
-                      {noTaxPromo ? 'Prices shown include tax' : 'Invoice prices shown'}
+                    <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '6px', textAlign: 'center' }}>
+                      {items.some(i => parseMoney(i.landingCost) > 0 && i.selectedMargin != null)
+                        ? 'Tap the highlighted margin again to restore original prices'
+                        : (noTaxPromo ? 'Prices shown include tax' : 'Invoice prices shown')}
                     </div>
                   </div>
                 )}
@@ -2382,14 +2405,14 @@ export default function AshleyDealCalculator() {
                 {overallMargin !== null && overallMargin < 47 && totalLandingCost > 0 && (
                   <div style={{ background: colors.error.light, border: `1px solid ${colors.error.main}50`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
                     <div style={{ fontSize: '12px', fontWeight: 700, color: colors.error.main, marginBottom: '6px' }}>Counter needed — below 47% floor</div>
-                    <div style={{ fontSize: '13px', color: colors.text.primary }}>
+                    <div style={{ fontSize: '14px', color: colors.text.primary }}>
                       Min invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 47))}</strong> for 47%
                     </div>
-                    <div style={{ fontSize: '13px', color: colors.text.primary, marginTop: '2px' }}>
+                    <div style={{ fontSize: '14px', color: colors.text.primary, marginTop: '2px' }}>
                       Target invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 50))}</strong> for 50%
                     </div>
                     {noTaxPromo && (
-                      <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '4px' }}>
+                      <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '4px' }}>
                         Customer quote: <strong>{formatMoney(priceForMargin(totalLandingCost, 47) * (1 + taxRate))}</strong> min • <strong>{formatMoney(priceForMargin(totalLandingCost, 50) * (1 + taxRate))}</strong> target
                       </div>
                     )}
@@ -2420,7 +2443,7 @@ export default function AshleyDealCalculator() {
                           )}
                         </div>
                         {item.invoicePrice > 0 ? (
-                          <div style={{ fontSize: '12px', color: colors.text.secondary, lineHeight: 1.6 }}>
+                          <div style={{ fontSize: '14px', color: colors.text.secondary, lineHeight: 1.6 }}>
                             {noTaxPromo ? (
                               <>
                                 Quote: {formatMoney(item.quotePrice)} • Invoice: {formatMoney(item.invoicePrice)}
@@ -2437,13 +2460,13 @@ export default function AshleyDealCalculator() {
                             {item.qty > 1 && <span> • Line total: {formatMoney(item.lineTotal)}</span>}
                           </div>
                         ) : (
-                          <div style={{ fontSize: '12px', color: colors.text.secondary, lineHeight: 1.6 }}>
+                          <div style={{ fontSize: '14px', color: colors.text.secondary, lineHeight: 1.6 }}>
                             Landing: {formatMoney(item.landingCost)} • <em>Tap a margin target below</em>
                           </div>
                         )}
-                        <div style={{ fontSize: '11px', color: colors.primary[400], marginTop: '8px', marginBottom: '4px', fontWeight: 600 }}>
-                          {item.selectedMargin 
-                            ? 'Tap again to restore original price:' 
+                        <div style={{ fontSize: '13px', color: colors.primary[400], marginTop: '8px', marginBottom: '4px', fontWeight: 600 }}>
+                          {item.selectedMargin
+                            ? 'Tap again to restore original price:'
                             : (noTaxPromo ? 'Tap to set price (shows quote w/ tax):' : 'Tap to set sale price:')}
                         </div>
                         <div className="margin-prices">
@@ -2481,7 +2504,7 @@ export default function AshleyDealCalculator() {
                           </div>
                         </div>
                         {noTaxPromo && item.margin !== null && (
-                          <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', background: colors.warning.light, border: `1px solid ${colors.warning.main}40`, padding: '8px', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '8px', background: colors.warning.light, border: `1px solid ${colors.warning.main}40`, padding: '8px', borderRadius: '6px' }}>
                             📝 <strong>Invoice:</strong> Write {formatMoney(item.invoicePrice)} for {item.margin.toFixed(0)}% margin → customer pays {formatMoney(item.quotePrice)}
                           </div>
                         )}
@@ -2497,10 +2520,10 @@ export default function AshleyDealCalculator() {
                     <span className="summary-chevron">▼</span>
                   </summary>
                   <div style={{ overflowX: 'auto', margin: '8px -8px 0' }}>
-                    <table style={{ 
-                      width: '100%', 
-                      borderCollapse: 'collapse', 
-                      fontSize: '12px',
+                    <table style={{
+                      width: '100%',
+                      borderCollapse: 'collapse',
+                      fontSize: '14px',
                       background: colors.primary[50],
                       borderRadius: '8px',
                       overflow: 'hidden',
