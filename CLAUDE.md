@@ -18,8 +18,18 @@ npm run preview  # Preview production build
 
 **Main calculator:**
 - `ashley-calculator-v5-fixed.jsx` - Main component containing all calculator UI and business logic
-- `src/main.jsx` - Entry point that mounts the React app
-- `index.html` - HTML shell
+- `src/main.jsx` - Entry point that mounts the React app; registers the service worker (prod only)
+- `index.html` - HTML shell (PWA manifest link + iOS home-screen meta tags)
+
+**Standalone calculator (AI-free):**
+- `src/Calculator.jsx` - "Paper tape" calculator: number pad, domain shortcuts (+Tax, −%, ÷3.3 landing, OTD back-out, Margin %), live step-by-step work, copy-tape, Use-as-price/landing, plus typed and voice natural-math input
+- `src/calcEngine.js` - Deterministic parser + evaluator. Turns spoken/typed math ("twelve hundred minus 15% plus tax") into structured actions and evaluates with adding-machine semantics. No `eval()`, no AI, fully offline. Reused by the tap buttons too.
+- `tests/unit/calcEngine.test.mjs` - Node unit tests for the engine (`node tests/unit/calcEngine.test.mjs`)
+
+**PWA:**
+- `public/manifest.webmanifest` - Installable app metadata (standalone, portrait, crimson theme)
+- `public/sw.js` - Dependency-free service worker: network-first navigations w/ offline app-shell fallback, stale-while-revalidate assets, coach API never cached
+- `public/icons/` - Generated icon set (192/512/maskable/apple-touch/favicon)
 
 **AI sales coach (floating bubble):**
 - `src/CoachBubble.jsx` - Always-visible floating button + verdict badge
