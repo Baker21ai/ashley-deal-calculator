@@ -77,7 +77,7 @@ const colors = {
   warning: { light: 'rgba(251,191,36,0.15)', main: '#FBBF24', dark: '#F59E0B' },
   error: { light: 'rgba(248,113,113,0.15)', main: '#F87171', dark: '#EF4444' },
   info: { light: 'rgba(59,130,246,0.15)', main: '#3B82F6' },
-  text: { primary: '#F5F0EB', secondary: '#8B91A0', disabled: '#6B7280' },
+  text: { primary: '#F5F0EB', secondary: '#A0A6B4', disabled: '#6B7280' },
 };
 
 function formatMoney(num) {
@@ -802,7 +802,7 @@ export default function AshleyDealCalculator() {
           --glass: rgba(255,255,255,0.06);
           --line: rgba(255,255,255,0.08);
           --text: #F5F0EB;
-          --muted: #8B91A0;
+          --muted: #A0A6B4;
           --primary: #E23744;
           --primary-strong: #C92A36;
           --crimson: #E23744;
@@ -975,7 +975,6 @@ export default function AshleyDealCalculator() {
           font-size: var(--text-md);
           font-weight: 700;
           color: var(--text);
-          font-family: var(--font-display);
           margin-bottom: 12px;
         }
 
@@ -1227,13 +1226,29 @@ export default function AshleyDealCalculator() {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 10px 16px 0;
+          padding: 10px 16px;
           border-bottom: 1px solid var(--line);
+          gap: 12px;
         }
         .sheet-title {
           font-size: var(--text-md);
           font-weight: 700;
           color: var(--text);
+        }
+        .sheet-summary {
+          min-width: 0;
+          flex: 1;
+        }
+        .sheet-summary-main {
+          font-size: 22px;
+          font-weight: 700;
+          color: var(--text);
+          line-height: 1.1;
+        }
+        .sheet-summary-sub {
+          font-size: 12px;
+          color: var(--muted);
+          margin-top: 2px;
         }
         .sheet-close {
           background: var(--glass);
@@ -1382,6 +1397,7 @@ export default function AshleyDealCalculator() {
           align-items: center;
           gap: 8px;
           margin-top: 8px;
+          flex-wrap: wrap;
         }
         .custom-margin-label {
           font-size: 13px;
@@ -2077,6 +2093,24 @@ export default function AshleyDealCalculator() {
           pointer-events: none;
           z-index: 1;
         }
+        .money-wrap.has-auto .input-compact { padding-right: 42px; }
+        .auto-tag {
+          position: absolute;
+          right: 6px;
+          top: 50%;
+          transform: translateY(-50%);
+          font-size: 9px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          color: var(--primary);
+          background: var(--crimson-glow);
+          border: 1px solid rgba(226,55,68,0.35);
+          padding: 2px 5px;
+          border-radius: 4px;
+          pointer-events: none;
+          z-index: 1;
+        }
         .money-wrap-lg {
           position: relative;
         }
@@ -2424,7 +2458,7 @@ export default function AshleyDealCalculator() {
                     {item.name || 'Select type...'}
                   </button>
                 )}
-                <div className="money-wrap" style={{ width: 90, flex: 'none' }}>
+                <div className="money-wrap" style={{ width: 110, flex: 'none' }}>
                   <input
                     type="text"
                     className={`input-compact ${errors.price ? 'input-error' : ''}`}
@@ -2435,7 +2469,7 @@ export default function AshleyDealCalculator() {
                   />
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                  <span style={{ fontSize: 9, color: 'var(--muted)', fontWeight: 600, marginBottom: 2 }}>Qty</span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 2 }}>Qty</span>
                   <input
                     type="number"
                     className="input-qty-compact"
@@ -2449,7 +2483,7 @@ export default function AshleyDealCalculator() {
               </div>
               {/* Row 2: Landing + Estimate + Remove + Back */}
               <div className="item-row-bottom">
-                <div className="money-wrap">
+                <div className={`money-wrap${item.landingAuto && String(item.landingCost).trim() !== '' ? ' has-auto' : ''}`}>
                   <input
                     type="text"
                     className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
@@ -2458,6 +2492,9 @@ export default function AshleyDealCalculator() {
                     onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
                     inputMode="decimal"
                   />
+                  {item.landingAuto && String(item.landingCost).trim() !== '' && (
+                    <span className="auto-tag" title="Auto-estimated from price — edit to override">auto</span>
+                  )}
                 </div>
                 <button className="item-estimate-btn" onClick={() => estimateLandingCost(item.id)} title="Estimate landing cost (price ÷ 3.3)">Est.</button>
                 {items.length > 1 && (
@@ -2504,9 +2541,19 @@ export default function AshleyDealCalculator() {
         <div className="result-overlay" onClick={resetForm}>
           <div className="result-card" onClick={e => e.stopPropagation()}>
             <div className="sheet-header">
-              <div className="sheet-title">
-                Deal Analysis
-              </div>
+              {subtotal > 0 ? (
+                <div className="sheet-summary">
+                  <div className="sheet-summary-main">{formatMoney(customerTotal)}</div>
+                  <div className="sheet-summary-sub">
+                    Customer pays
+                    {overallMargin !== null && (
+                      <> • <span style={{ color: getMarginColor(overallMargin), fontWeight: 700 }}>{overallMargin.toFixed(1)}% margin</span></>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="sheet-title">Deal Analysis</div>
+              )}
               <button className="sheet-close" onClick={resetForm}>Close</button>
             </div>
             <div className="sheet-content">
