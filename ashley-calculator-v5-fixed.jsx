@@ -2848,61 +2848,6 @@ export default function AshleyDealCalculator() {
                   </div>
                 </details>
 
-                {/* Summary Table */}
-                <details className="result-section">
-                  <summary>
-                    Deal at a Glance
-                    <span className="summary-chevron">▼</span>
-                  </summary>
-                  <div style={{ overflowX: 'auto', margin: '8px -8px 0' }}>
-                    <table style={{
-                      width: '100%',
-                      borderCollapse: 'collapse',
-                      fontSize: '14px',
-                      background: colors.primary[50],
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
-                    }}>
-                      <thead>
-                        <tr style={{ background: colors.primary[50] }}>
-                          <th style={{ padding: '8px 6px', textAlign: 'left', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Item</th>
-                          <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Landing</th>
-                          <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Invoice</th>
-                          {noTaxPromo && <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Quote</th>}
-                          <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Profit</th>
-                          <th style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.primary, borderBottom: `2px solid ${colors.primary[200]}` }}>Margin</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                      {calculatedItems.filter(item => item.landingProvided).map((item, i) => (
-                          <tr key={item.id} style={{ borderBottom: `1px solid ${colors.primary[100]}` }}>
-                            <td style={{ padding: '8px 6px', color: colors.text.primary }}>{item.name || `Item ${i + 1}`}</td>
-                            <td style={{ padding: '8px 6px', textAlign: 'right', color: colors.text.secondary }}>{formatMoney(item.landingCost)}</td>
-                            <td style={{ padding: '8px 6px', textAlign: 'right', color: colors.text.primary, fontWeight: 500 }}>{item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '—'}</td>
-                            {noTaxPromo && <td style={{ padding: '8px 6px', textAlign: 'right', color: colors.info.main, fontWeight: 500 }}>{item.quotePrice > 0 ? formatMoney(item.quotePrice) : '—'}</td>}
-                            <td style={{ padding: '8px 6px', textAlign: 'right', color: colors.success.main, fontWeight: 500 }}>{item.profitPerUnit !== null ? formatMoney(item.profitPerUnit) : '—'}</td>
-                            <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 600, color: getMarginColor(item.margin || 0) }}>
-                              {item.margin !== null ? `${item.margin.toFixed(0)}%` : '—'}
-                            </td>
-                          </tr>
-                        ))}
-                        {/* Totals row */}
-                        <tr style={{ background: colors.primary[50], fontWeight: 600 }}>
-                          <td style={{ padding: '10px 6px', color: colors.text.primary }}>TOTAL</td>
-                          <td style={{ padding: '10px 6px', textAlign: 'right', color: colors.text.secondary }}>{formatMoney(totalLandingCost)}</td>
-                          <td style={{ padding: '10px 6px', textAlign: 'right', color: colors.text.primary }}>{subtotal > 0 ? formatMoney(subtotal) : '—'}</td>
-                          {noTaxPromo && <td style={{ padding: '10px 6px', textAlign: 'right', color: colors.info.main }}>{subtotal > 0 ? formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0)) : '—'}</td>}
-                          <td style={{ padding: '10px 6px', textAlign: 'right', color: colors.success.main }}>{totalProfit > 0 ? formatMoney(totalProfit) : '—'}</td>
-                          <td style={{ padding: '10px 6px', textAlign: 'right', color: getMarginColor(overallMargin || 0) }}>
-                            {overallMargin !== null ? `${overallMargin.toFixed(1)}%` : '—'}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-
                 {/* Customer Total Breakdown */}
                 {subtotal > 0 && (
                   <details className="result-section" open>
@@ -2963,27 +2908,6 @@ export default function AshleyDealCalculator() {
                     </div>
                   </div>
                 )}
-
-                <details className="result-section">
-                  <summary>
-                    Internal Summary
-                    <span className="summary-chevron">▼</span>
-                  </summary>
-                  <div style={{ marginTop: '8px' }}>
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">Invoice Total</span>
-                      <span className="breakdown-value">{subtotal > 0 ? formatMoney(subtotal) : '—'}</span>
-                    </div>
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">Total Landing Cost</span>
-                      <span className="breakdown-value">{formatMoney(totalLandingCost)}</span>
-                    </div>
-                    <div className="breakdown-row">
-                      <span className="breakdown-label">Total Profit</span>
-                      <span className="breakdown-value" style={{ color: colors.success.main }}>{totalProfit > 0 ? formatMoney(totalProfit) : '—'}</span>
-                    </div>
-                  </div>
-                </details>
 
                 {/* Copy for Manager */}
                 <CopyBlock
