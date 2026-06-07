@@ -1999,6 +1999,50 @@ export default function AshleyDealCalculator() {
           color: white;
         }
 
+        /* Selected item-type chip (collapsed picker) */
+        .item-name-selected {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-width: 0;
+        }
+        .item-name-chip {
+          font-size: var(--text-md);
+          font-weight: 700;
+          color: var(--text);
+          padding: 7px 11px;
+          background: var(--crimson-glow);
+          border: 1px solid var(--primary);
+          border-radius: var(--radius-sm);
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .item-name-change {
+          background: none;
+          border: none;
+          color: var(--primary);
+          font-size: 11px;
+          font-weight: 600;
+          cursor: pointer;
+          text-decoration: underline;
+          padding: 4px 4px;
+          flex-shrink: 0;
+        }
+        .item-name-change:hover { color: var(--crimson); }
+        /* Demoted "custom" typing escape hatch */
+        .item-custom-link {
+          background: none;
+          border: none;
+          color: var(--muted);
+          font-size: 11px;
+          cursor: pointer;
+          text-decoration: underline;
+          padding: 4px 6px;
+          align-self: center;
+        }
+        .item-custom-link:hover { color: var(--text); }
+
         /* Flat item card (2-row layout) */
         .item-card-compact {
           background: var(--surface-2);
@@ -2432,14 +2476,24 @@ export default function AshleyDealCalculator() {
                     autoFocus
                     style={{ flex: 1 }}
                   />
-                ) : expandedItemPresets[item.id] ? (
+                ) : (item.name && !expandedItemPresets[item.id]) ? (
+                  <div className="item-name-selected" style={{ flex: 1 }}>
+                    <span className="item-name-chip">{item.name}</span>
+                    <button
+                      className="item-name-change"
+                      onClick={() => setExpandedItemPresets({ ...expandedItemPresets, [item.id]: true })}
+                    >
+                      change
+                    </button>
+                  </div>
+                ) : (
                   <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: expandedMore[item.id] ? 6 : 0 }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: expandedMore[item.id] ? 6 : 0 }}>
                       {TOP_ITEM_PRESETS.map(p => (
-                        <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
+                        <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); setExpandedMore({ ...expandedMore, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
                       ))}
-                      <button className={`pill-compact${expandedMore[item.id] ? ' selected' : ''}`} onClick={() => setExpandedMore({ ...expandedMore, [item.id]: !expandedMore[item.id] })} style={{ fontSize: 11 }}>{expandedMore[item.id] ? 'Less' : 'More'}</button>
-                      <button className="pill-compact" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: true }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>Custom</button>
+                      <button className={`pill-compact${expandedMore[item.id] ? ' selected' : ''}`} onClick={() => setExpandedMore({ ...expandedMore, [item.id]: !expandedMore[item.id] })} style={{ fontSize: 11 }}>{expandedMore[item.id] ? 'Less' : '+ More'}</button>
+                      <button className="item-custom-link" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: true }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }}>custom</button>
                     </div>
                     {expandedMore[item.id] && (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -2449,14 +2503,6 @@ export default function AshleyDealCalculator() {
                       </div>
                     )}
                   </div>
-                ) : (
-                  <button
-                    className="pill-compact"
-                    onClick={() => setExpandedItemPresets({ ...expandedItemPresets, [item.id]: true })}
-                    style={{ fontSize: 12, flex: 1, justifyContent: 'flex-start', gap: 6 }}
-                  >
-                    {item.name || 'Select type...'}
-                  </button>
                 )}
                 <div className="money-wrap" style={{ width: 110, flex: 'none' }}>
                   <input
