@@ -21,6 +21,7 @@ const createEmptyItem = (id = Date.now()) => ({
   price: '',
   qty: 1,
   landingCost: '',
+  landingAuto: false, // true when landing was auto-estimated (not manually entered)
   marginSet: false,
   selectedMargin: null,
   originalPrice: undefined,
@@ -35,6 +36,7 @@ const normalizeItem = (item, fallbackId) => {
     price: safeItem.price ?? '',
     qty: Number.isFinite(qtyValue) && qtyValue > 0 ? qtyValue : 1,
     landingCost: safeItem.landingCost ?? '',
+    landingAuto: Boolean(safeItem.landingAuto),
     marginSet: Boolean(safeItem.marginSet),
     selectedMargin: safeItem.selectedMargin ?? null,
     originalPrice: safeItem.originalPrice,
@@ -154,6 +156,27 @@ export default function AshleyDealCalculator() {
   // Copy feedback state
   const [copyFeedback, setCopyFeedback] = useState(false);
 
+  // Per-item "Est." feedback: { [itemId]: { text, ok } }
+  const [estimateFeedback, setEstimateFeedback] = useState({});
+  const estimateTimers = useRef({});
+
+  // Custom-margin inputs (free-entry % targets)
+  const [orderCustomMargin, setOrderCustomMargin] = useState('');
+  const [itemCustomMargin, setItemCustomMargin] = useState({}); // { [itemId]: string }
+  const MARGIN_PRESETS = [50, 49, 48, 47];
+
+  const flashEstimateFeedback = (itemId, text, ok) => {
+    setEstimateFeedback(prev => ({ ...prev, [itemId]: { text, ok } }));
+    if (estimateTimers.current[itemId]) clearTimeout(estimateTimers.current[itemId]);
+    estimateTimers.current[itemId] = setTimeout(() => {
+      setEstimateFeedback(prev => {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+    }, 2500);
+  };
+
   // Calculate button feedback
   const [calcPulse, setCalcPulse] = useState(false);
 
@@ -203,9 +226,12 @@ export default function AshleyDealCalculator() {
   };
 
   const updateItem = (id, field, value) => {
-    setItems(items.map(item => 
-      item.id === id ? { ...item, [field]: value } : item
-    ));
+    setItems(items.map(item => {
+      if (item.id !== id) return item;
+      // Manually editing landing turns off auto-estimate so price changes won't overwrite it
+      if (field === 'landingCost') return { ...item, landingCost: value, landingAuto: false };
+      return { ...item, [field]: value };
+    }));
     if (field === 'landingCost') clearError('landingCost');
     if (field === 'price') clearError('price');
   };
@@ -367,12 +393,32 @@ export default function AshleyDealCalculator() {
     }));
   };
 
-  // FIX: Clear marginSet flag and selectedMargin when user manually edits price
+  // Shared landing-cost estimate: full retail price ÷ 3.3
+  const computeEstimatedLanding = (priceValue) => {
+    const currentPrice = parseMoney(priceValue);
+    if (currentPrice <= 0) return null;
+    const retailPrice = priceType === 'tag' ? currentPrice : currentPrice / (1 - salePercent / 100);
+    if (retailPrice <= 0) return null;
+    return Math.round((retailPrice / 3.3) * 100) / 100;
+  };
+
+  // FIX: Clear marginSet flag and selectedMargin when user manually edits price.
+  // Also auto-estimate landing cost as the price is typed (unless landing was entered manually).
   const updateItemPrice = (id, value) => {
-    setItems(items.map(item =>
-      item.id === id ? { ...item, price: value, marginSet: false, selectedMargin: null, originalPrice: undefined } : item
-    ));
+    setItems(items.map(item => {
+      if (item.id !== id) return item;
+      const next = { ...item, price: value, marginSet: false, selectedMargin: null, originalPrice: undefined };
+      // Auto-fill landing only when it's empty or still auto-managed — never clobber a manual entry
+      const landingIsAuto = item.landingAuto || String(item.landingCost).trim() === '';
+      if (landingIsAuto) {
+        const estimate = computeEstimatedLanding(value);
+        next.landingCost = estimate != null ? estimate.toFixed(2) : '';
+        next.landingAuto = true;
+      }
+      return next;
+    }));
     clearError('price');
+    clearError('landingCost');
   };
 
   // Set ALL items to a target margin at once.
@@ -409,23 +455,37 @@ export default function AshleyDealCalculator() {
     }));
   };
 
-  // Estimate landing cost from full retail price / 3.3 (auto-calculate)
+  // Custom-margin helpers: clamp free-entry % to a sane range, then reuse the margin setters
+  const clampMargin = (raw) => {
+    const n = parseFloat(raw);
+    if (!Number.isFinite(n)) return null;
+    return Math.min(99, Math.max(1, Math.round(n * 10) / 10));
+  };
+  const applyItemCustomMargin = (itemId) => {
+    const n = clampMargin(itemCustomMargin[itemId]);
+    if (n == null) return;
+    setItemToMargin(itemId, n);
+  };
+  const applyOrderCustomMargin = () => {
+    const n = clampMargin(orderCustomMargin);
+    if (n == null) return;
+    setAllItemsToMargin(n);
+  };
+
+  // Re-estimate landing cost from full retail price ÷ 3.3 (manual "Est." button).
+  // Re-derives even over a manual entry and shows confirmation feedback.
   const estimateLandingCost = (itemId) => {
     const item = items.find(i => i.id === itemId);
     if (!item) return;
-    const currentPrice = parseMoney(item.price);
-    let retailPrice = 0;
-    if (currentPrice > 0) {
-      if (priceType === 'tag') {
-        retailPrice = currentPrice;
-      } else {
-        const discount = salePercent / 100;
-        retailPrice = currentPrice / (1 - discount);
-      }
-    }
-    if (retailPrice > 0) {
-      const estimated = Math.round((retailPrice / 3.3) * 100) / 100;
-      updateItem(itemId, 'landingCost', estimated.toFixed(2));
+    const estimated = computeEstimatedLanding(item.price);
+    if (estimated != null) {
+      const currentPrice = parseMoney(item.price);
+      const retailPrice = priceType === 'tag' ? currentPrice : currentPrice / (1 - salePercent / 100);
+      setItems(items.map(i => i.id === itemId ? { ...i, landingCost: estimated.toFixed(2), landingAuto: true } : i));
+      clearError('landingCost');
+      flashEstimateFeedback(itemId, `Estimated from ${formatMoney(retailPrice)} retail ÷ 3.3`, true);
+    } else {
+      flashEstimateFeedback(itemId, 'Enter a price first to estimate', false);
     }
   };
   
@@ -1316,6 +1376,80 @@ export default function AshleyDealCalculator() {
         }
         .margin-price-label { font-size: 12px; font-weight: 600; color: var(--muted); }
         .margin-price-value { font-size: 16px; font-weight: 700; margin-top: 3px; color: var(--text); }
+
+        .custom-margin-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-top: 8px;
+        }
+        .custom-margin-label {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--muted);
+          flex-shrink: 0;
+        }
+        .custom-margin-field {
+          position: relative;
+          width: 84px;
+          flex-shrink: 0;
+        }
+        .custom-margin-field::after {
+          content: '%';
+          position: absolute;
+          right: 10px;
+          top: 50%;
+          transform: translateY(-50%);
+          color: var(--muted);
+          font-size: 14px;
+          pointer-events: none;
+        }
+        .custom-margin-input {
+          width: 100%;
+          padding: 8px 24px 8px 10px;
+          border: 1px solid var(--line);
+          border-radius: var(--radius-sm);
+          font-size: 15px;
+          font-weight: 600;
+          background: var(--bg);
+          color: var(--text);
+          min-height: 40px;
+        }
+        .custom-margin-input:focus {
+          outline: none;
+          border-color: var(--crimson);
+          box-shadow: 0 0 0 2px var(--crimson-glow);
+        }
+        .custom-margin-preview {
+          font-size: 14px;
+          font-weight: 700;
+          color: var(--success);
+          flex: 1;
+          min-width: 0;
+          text-align: right;
+        }
+        .custom-margin-set {
+          padding: 8px 16px;
+          border-radius: var(--radius-sm);
+          border: none;
+          background: var(--crimson);
+          color: white;
+          font-size: 14px;
+          font-weight: 700;
+          cursor: pointer;
+          min-height: 40px;
+          flex-shrink: 0;
+          margin-left: auto;
+          transition: all 0.15s;
+        }
+        .custom-margin-set:hover:not(:disabled) {
+          box-shadow: 0 0 12px var(--crimson-glow);
+        }
+        .custom-margin-set:disabled {
+          background: var(--surface-2);
+          color: var(--muted);
+          cursor: not-allowed;
+        }
         
         details.result-section {
           border: 1px solid var(--line);
@@ -1978,6 +2112,17 @@ export default function AshleyDealCalculator() {
           background: rgba(226,55,68,0.1);
           border-color: var(--primary);
         }
+        .estimate-feedback {
+          font-size: 12px;
+          font-weight: 600;
+          margin-top: 6px;
+          padding-left: 2px;
+          animation: fadeIn 0.15s ease-out;
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-2px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
 
         /* Toggle compact */
         .toggle-compact {
@@ -2322,6 +2467,16 @@ export default function AshleyDealCalculator() {
                   <button className="item-remove-btn" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: false }); if (!item.name) updateItem(item.id, 'name', ''); }} title="Back to presets" style={{ fontSize: 12 }}>↩</button>
                 )}
               </div>
+              {estimateFeedback[item.id] && (
+                <div
+                  className="estimate-feedback"
+                  style={{ color: estimateFeedback[item.id].ok ? 'var(--success)' : 'var(--warning)' }}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {estimateFeedback[item.id].ok ? '✓ ' : '⚠ '}{estimateFeedback[item.id].text}
+                </div>
+              )}
             </div>
           ))}
           
@@ -2382,7 +2537,7 @@ export default function AshleyDealCalculator() {
                   <div style={{ background: colors.primary[50], border: `1px solid ${colors.primary[200]}`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: colors.primary[400], marginBottom: '8px' }}>Set Entire Order to Margin</div>
                     <div className="margin-prices">
-                      {[50, 49, 48, 47].map(target => (
+                      {MARGIN_PRESETS.map(target => (
                         <div
                           key={target}
                           className={`margin-price-box ${items.every(i => !parseMoney(i.landingCost) || i.selectedMargin === target) && items.some(i => i.selectedMargin === target) ? 'current' : ''}`}
@@ -2393,6 +2548,27 @@ export default function AshleyDealCalculator() {
                           <div className="margin-price-value">{formatMoney(noTaxPromo ? priceForMargin(totalLandingCost, target) * (1 + taxRate) : priceForMargin(totalLandingCost, target))}</div>
                         </div>
                       ))}
+                    </div>
+                    <div className="custom-margin-row">
+                      <span className="custom-margin-label">Custom</span>
+                      <div className="custom-margin-field">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className="custom-margin-input"
+                          placeholder="%"
+                          value={orderCustomMargin}
+                          onChange={(e) => setOrderCustomMargin(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') applyOrderCustomMargin(); }}
+                          aria-label="Custom margin percent for entire order"
+                        />
+                      </div>
+                      {clampMargin(orderCustomMargin) != null && (
+                        <span className="custom-margin-preview">
+                          = {formatMoney(noTaxPromo ? priceForMargin(totalLandingCost, clampMargin(orderCustomMargin)) * (1 + taxRate) : priceForMargin(totalLandingCost, clampMargin(orderCustomMargin)))}
+                        </span>
+                      )}
+                      <button className="custom-margin-set" onClick={applyOrderCustomMargin} disabled={clampMargin(orderCustomMargin) == null}>Set</button>
                     </div>
                     <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '6px', textAlign: 'center' }}>
                       {items.some(i => parseMoney(i.landingCost) > 0 && i.selectedMargin != null)
@@ -2502,6 +2678,27 @@ export default function AshleyDealCalculator() {
                             <div className="margin-price-label">47%</div>
                             <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt47 * (1 + taxRate) : item.priceAt47)}</div>
                           </div>
+                        </div>
+                        <div className="custom-margin-row">
+                          <span className="custom-margin-label">Custom</span>
+                          <div className="custom-margin-field">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              className="custom-margin-input"
+                              placeholder="%"
+                              value={itemCustomMargin[item.id] ?? ''}
+                              onChange={(e) => setItemCustomMargin(prev => ({ ...prev, [item.id]: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === 'Enter') applyItemCustomMargin(item.id); }}
+                              aria-label="Custom margin percent for this item"
+                            />
+                          </div>
+                          {clampMargin(itemCustomMargin[item.id]) != null && item.landingCost > 0 && (
+                            <span className="custom-margin-preview">
+                              = {formatMoney(noTaxPromo ? priceForMargin(item.landingCost, clampMargin(itemCustomMargin[item.id])) * (1 + taxRate) : priceForMargin(item.landingCost, clampMargin(itemCustomMargin[item.id])))}
+                            </span>
+                          )}
+                          <button className="custom-margin-set" onClick={() => applyItemCustomMargin(item.id)} disabled={clampMargin(itemCustomMargin[item.id]) == null}>Set</button>
                         </div>
                         {noTaxPromo && item.margin !== null && (
                           <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '8px', background: colors.warning.light, border: `1px solid ${colors.warning.main}40`, padding: '8px', borderRadius: '6px' }}>
