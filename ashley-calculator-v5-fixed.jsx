@@ -2310,6 +2310,7 @@ export default function AshleyDealCalculator() {
         .calc-mic { background: var(--surface-2); border: 1px solid var(--line); color: var(--text); font-size: 18px; }
         .calc-mic.listening { background: var(--crimson); border-color: var(--crimson); color: white; animation: pulse 1.2s ease-in-out infinite; }
         .calc-nl-error { color: var(--warning); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+        .calc-listening { color: var(--crimson); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
         .calc-tape {
           background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm);
           padding: 10px 12px; min-height: 64px; max-height: 180px; overflow-y: auto; margin-bottom: 8px;

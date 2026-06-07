@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { evaluate, parse } from './calcEngine.js';
+import { sttSupported, createRecognizer } from './voiceIO.js';
 
 const formatMoney = (n) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0);
@@ -31,6 +32,8 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
   const [nl, setNl] = useState('');
   const [nlError, setNlError] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [listening, setListening] = useState(false);
+  const recRef = useRef(null);
 
   const cfg = { taxRate };
 
@@ -72,10 +75,10 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
 
   const clearAll = () => { setActions([]); setEntry(''); setOp(null); setNlError(null); setNl(''); };
 
-  const runNL = () => {
-    const text = nl.trim();
-    if (!text) return;
-    const p = parse(text, cfg);
+  const runText = (text) => {
+    const t = (text || '').trim();
+    if (!t) return;
+    const p = parse(t, cfg);
     if (!p.ok) { setNlError(p.error); return; }
     const check = evaluate(p.actions, cfg);
     if (!check.ok) { setNlError(check.error); return; }
@@ -84,6 +87,32 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
     setOp(null);
     setNlError(null);
   };
+  const runNL = () => runText(nl);
+
+  // Voice: transcribe with the browser's speech API, then parse deterministically.
+  // The transcript lands in the editable field so a misheard number can be fixed.
+  const toggleMic = () => {
+    if (listening) { try { recRef.current?.stop(); } catch { /* noop */ } return; }
+    const rec = createRecognizer({
+      onResult: ({ final, interim }) => setNl([final, interim].filter(Boolean).join(' ').trim()),
+      onEnd: (finalText) => {
+        setListening(false);
+        if (finalText) { setNl(finalText); runText(finalText); }
+      },
+      onError: (err) => {
+        setListening(false);
+        if (err !== 'no-speech' && err !== 'aborted') setNlError(`Mic: ${err}`);
+      },
+    });
+    if (!rec) { setNlError('Voice input is not supported on this browser.'); return; }
+    recRef.current = rec;
+    setNlError(null);
+    setNl('');
+    try { rec.start(); setListening(true); } catch { setListening(false); }
+  };
+
+  // Stop the mic if the calculator unmounts mid-listen.
+  useEffect(() => () => { try { recRef.current?.abort?.(); } catch { /* noop */ } }, []);
 
   const copyTape = () => {
     if (!ev.steps.length) return;
@@ -118,8 +147,21 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
               onKeyDown={(e) => { if (e.key === 'Enter') runNL(); }}
               aria-label="Type a math expression"
             />
+            {sttSupported && (
+              <button
+                className={`calc-mic ${listening ? 'listening' : ''}`}
+                onClick={toggleMic}
+                aria-label={listening ? 'Stop listening' : 'Speak the math'}
+                title={listening ? 'Stop' : 'Speak the math'}
+              >
+                {listening ? '■' : '🎤'}
+              </button>
+            )}
             <button className="calc-nl-go" onClick={runNL} disabled={!nl.trim()}>Go</button>
           </div>
+          {listening && (
+            <div className="calc-listening">🎙️ Listening… e.g. “twelve hundred minus fifteen percent plus tax”</div>
+          )}
           {nlError && <div className="calc-nl-error">⚠ {nlError}</div>}
 
           {/* Work tape */}
