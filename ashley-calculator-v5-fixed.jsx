@@ -1,5 +1,6 @@
 import { useState, useLayoutEffect, useMemo, useEffect, useRef, useCallback } from 'react';
 import CoachBubble from './src/CoachBubble.jsx';
+import Calculator from './src/Calculator.jsx';
 import { dealSnapshot } from './src/dialogueManager.js';
 
 const TAX_RATE = 9.125;
@@ -194,6 +195,9 @@ export default function AshleyDealCalculator() {
     } catch { return []; }
   });
   const [showHistory, setShowHistory] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [toast, setToast] = useState(null);
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
 
 
   // Save state to localStorage whenever it changes
@@ -2269,6 +2273,81 @@ export default function AshleyDealCalculator() {
           to { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
 
+        /* ---- Calculator ---- */
+        .calc-overlay {
+          position: fixed; inset: 0;
+          background: rgba(15, 17, 23, 0.8);
+          backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+          display: flex; align-items: flex-end; justify-content: center;
+          z-index: 9500; overflow-y: auto;
+        }
+        .calc-sheet {
+          background: var(--surface);
+          border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+          width: 100%; max-width: 520px; margin: 0 auto;
+          border: 1px solid var(--line);
+          box-shadow: 0 -12px 30px rgba(0,0,0,0.4);
+          animation: sheetUp 0.22s ease-out;
+        }
+        .calc-body {
+          padding: 12px 16px calc(20px + env(safe-area-inset-bottom));
+          max-height: 86vh; overflow: auto; overscroll-behavior: contain;
+        }
+        .calc-nl { display: flex; gap: 8px; margin-bottom: 8px; }
+        .calc-nl-input {
+          flex: 1; min-width: 0;
+          padding: 12px 14px; border: 1px solid var(--line);
+          border-radius: var(--radius-sm); background: var(--bg); color: var(--text);
+          font-size: var(--text-md); min-height: 44px;
+        }
+        .calc-nl-input:focus { outline: none; border-color: var(--crimson); box-shadow: 0 0 0 2px var(--crimson-glow); }
+        .calc-nl-go, .calc-mic {
+          flex-shrink: 0; min-width: 48px; min-height: 44px;
+          border: none; border-radius: var(--radius-sm);
+          background: var(--crimson); color: white; font-weight: 700; font-size: 15px; cursor: pointer;
+        }
+        .calc-nl-go:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
+        .calc-mic { background: var(--surface-2); border: 1px solid var(--line); color: var(--text); font-size: 18px; }
+        .calc-mic.listening { background: var(--crimson); border-color: var(--crimson); color: white; animation: pulse 1.2s ease-in-out infinite; }
+        .calc-nl-error { color: var(--warning); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+        .calc-tape {
+          background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm);
+          padding: 10px 12px; min-height: 64px; max-height: 180px; overflow-y: auto; margin-bottom: 8px;
+        }
+        .calc-tape-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 14px 0; }
+        .calc-step { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 15px; }
+        .calc-step-label { color: var(--muted); }
+        .calc-step-total { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+        .calc-result-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+        .calc-pending { color: var(--crimson); font-size: 16px; font-weight: 700; min-height: 20px; }
+        .calc-result { color: var(--text); font-size: 30px; font-weight: 800; font-variant-numeric: tabular-nums; }
+        .calc-use { display: flex; gap: 8px; margin-bottom: 10px; }
+        .calc-use-btn {
+          flex: 1; padding: 10px 8px; border-radius: var(--radius-sm);
+          background: var(--crimson); color: white; border: none; font-weight: 700; font-size: 13px; cursor: pointer; min-height: 44px;
+        }
+        .calc-use-btn.ghost { background: var(--surface-2); border: 1px solid var(--line); color: var(--text); }
+        .calc-use-btn:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; border: 1px solid var(--line); }
+        .calc-domain { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 10px; }
+        .calc-domain-btn {
+          padding: 10px 4px; border-radius: var(--radius-sm); border: 1px solid var(--line);
+          background: var(--surface-2); color: var(--text); font-weight: 700; font-size: 13px; cursor: pointer; min-height: 46px;
+        }
+        .calc-domain-btn:hover { border-color: var(--crimson); }
+        .calc-domain-btn.active { background: var(--crimson); border-color: var(--crimson); color: white; }
+        .calc-keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .calc-key {
+          padding: 16px 0; border-radius: var(--radius-sm); border: 1px solid var(--line);
+          background: var(--surface-2); color: var(--text); font-size: 22px; font-weight: 700; cursor: pointer; min-height: 56px;
+          transition: all 0.1s;
+        }
+        .calc-key:active { transform: scale(0.96); }
+        .calc-key.op { background: var(--surface); color: var(--crimson); }
+        .calc-key.op.active { background: var(--crimson); color: white; }
+        .calc-key.wide { grid-column: span 2; }
+        .calc-key.equals { grid-column: span 2; background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%); color: white; border: none; }
+        .calc-hint { color: var(--muted); font-size: 11px; text-align: center; margin-top: 10px; }
+
         @media (prefers-reduced-motion: reduce) {
           * { animation: none !important; transition: none !important; }
         }
@@ -2289,12 +2368,22 @@ export default function AshleyDealCalculator() {
             <h1>Deal Depth</h1>
             <p>Ashley HomeStore • Gilroy</p>
           </div>
-          <button
-            className="header-menu-btn"
-            onClick={() => setMenuOpen(!menuOpen)}
-          >
-            ⋮
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              className="header-menu-btn"
+              onClick={() => setShowCalculator(true)}
+              aria-label="Open calculator"
+            >
+              🧮
+            </button>
+            <button
+              className="header-menu-btn"
+              onClick={() => setMenuOpen(!menuOpen)}
+              aria-label="Menu"
+            >
+              ⋮
+            </button>
+          </div>
           {menuOpen && (
             <div className="header-menu" ref={menuRef}>
               <button
@@ -3144,6 +3233,30 @@ export default function AshleyDealCalculator() {
       {/* Copy Feedback Toast */}
       {copyFeedback && (
         <div className="toast">✓ Copied to clipboard</div>
+      )}
+      {toast && <div className="toast">{toast}</div>}
+
+      {showCalculator && (
+        <Calculator
+          taxRate={TAX_RATE}
+          onClose={() => setShowCalculator(false)}
+          onUsePrice={(value) => {
+            const id = items[0]?.id;
+            if (id != null && Number.isFinite(value)) {
+              updateItemPrice(id, value.toFixed(2));
+              showToast(`Set price on ${items[0].name || 'Item 1'}`);
+            }
+            setShowCalculator(false);
+          }}
+          onUseLanding={(value) => {
+            const id = items[0]?.id;
+            if (id != null && Number.isFinite(value)) {
+              updateItem(id, 'landingCost', value.toFixed(2));
+              showToast(`Set landing on ${items[0].name || 'Item 1'}`);
+            }
+            setShowCalculator(false);
+          }}
+        />
       )}
 
       <CoachBubble calcSnapshot={calcSnapshot} calcRefs={calcRefs} />
