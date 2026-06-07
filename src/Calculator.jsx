@@ -30,6 +30,7 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
   const [entry, setEntry] = useState('');
   const [op, setOp] = useState(null);
   const [nl, setNl] = useState('');
+  const [nlEcho, setNlEcho] = useState(null);
   const [nlError, setNlError] = useState(null);
   const [copied, setCopied] = useState(false);
   const [listening, setListening] = useState(false);
@@ -43,7 +44,7 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
   const result = ev.result;
   const hasContent = live.length > 0;
 
-  const pressDigit = (d) => { setNlError(null); setEntry((e) => (e === '0' ? d : e + d)); };
+  const pressDigit = (d) => { setNlError(null); setNlEcho(null); setEntry((e) => (e === '0' ? d : e + d)); };
   const pressDot = () => setEntry((e) => (e.includes('.') ? e : (e === '' ? '0.' : e + '.')));
 
   const pressOp = (o) => {
@@ -73,19 +74,20 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
     else { setActions((a) => a.slice(0, -1)); setOp(null); }
   };
 
-  const clearAll = () => { setActions([]); setEntry(''); setOp(null); setNlError(null); setNl(''); };
+  const clearAll = () => { setActions([]); setEntry(''); setOp(null); setNlError(null); setNlEcho(null); setNl(''); };
 
   const runText = (text) => {
     const t = (text || '').trim();
     if (!t) return;
     const p = parse(t, cfg);
-    if (!p.ok) { setNlError(p.error); return; }
+    if (!p.ok) { setNlError(p.error); setNlEcho(null); return; }
     const check = evaluate(p.actions, cfg);
-    if (!check.ok) { setNlError(check.error); return; }
+    if (!check.ok) { setNlError(check.error); setNlEcho(null); return; }
     setActions(p.actions);
     setEntry('');
     setOp(null);
     setNlError(null);
+    setNlEcho(p.normalized);
   };
   const runNL = () => runText(nl);
 
@@ -141,9 +143,9 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
             <input
               className="calc-nl-input"
               type="text"
-              placeholder="Type math: 1200 + tax - 10%"
+              placeholder="Type or say: couch 1001, loveseat 500, +tax"
               value={nl}
-              onChange={(e) => setNl(e.target.value)}
+              onChange={(e) => { setNl(e.target.value); setNlError(null); }}
               onKeyDown={(e) => { if (e.key === 'Enter') runNL(); }}
               aria-label="Type a math expression"
             />
@@ -160,9 +162,10 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
             <button className="calc-nl-go" onClick={runNL} disabled={!nl.trim()}>Go</button>
           </div>
           {listening && (
-            <div className="calc-listening">🎙️ Listening… e.g. “twelve hundred minus fifteen percent plus tax”</div>
+            <div className="calc-listening">🎙️ Listening… e.g. “couch ten ninety nine, loveseat five hundred, plus tax”</div>
           )}
           {nlError && <div className="calc-nl-error">⚠ {nlError}</div>}
+          {nlEcho && !nlError && <div className="calc-nl-echo">Read as: {nlEcho}</div>}
 
           {/* Work tape */}
           <div className="calc-tape" role="log" aria-live="polite">
