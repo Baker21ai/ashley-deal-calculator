@@ -23,6 +23,7 @@ const createEmptyItem = (id = Date.now()) => ({
   qty: 1,
   landingCost: '',
   landingAuto: false, // true when landing was auto-estimated (not manually entered)
+  priceAuto: false, // true when price was auto-estimated from landing (not manually entered)
   marginSet: false,
   selectedMargin: null,
   originalPrice: undefined,
@@ -38,6 +39,7 @@ const normalizeItem = (item, fallbackId) => {
     qty: Number.isFinite(qtyValue) && qtyValue > 0 ? qtyValue : 1,
     landingCost: safeItem.landingCost ?? '',
     landingAuto: Boolean(safeItem.landingAuto),
+    priceAuto: Boolean(safeItem.priceAuto),
     marginSet: Boolean(safeItem.marginSet),
     selectedMargin: safeItem.selectedMargin ?? null,
     originalPrice: safeItem.originalPrice,
@@ -144,6 +146,7 @@ export default function AshleyDealCalculator() {
   
   // Results
   const [showResults, setShowResults] = useState(false);
+  const [showInvoice, setShowInvoice] = useState(false);
   const [errors, setErrors] = useState({});
 
   // Confirmation modal
@@ -233,10 +236,23 @@ export default function AshleyDealCalculator() {
     setItems(items.map(item => {
       if (item.id !== id) return item;
       // Manually editing landing turns off auto-estimate so price changes won't overwrite it
-      if (field === 'landingCost') return { ...item, landingCost: value, landingAuto: false };
+      if (field === 'landingCost') {
+        const next = { ...item, landingCost: value, landingAuto: false };
+        // Auto-fill price only when it's empty or still auto-managed — never clobber a manual/margin-set price
+        const priceIsAuto = item.priceAuto || String(item.price).trim() === '';
+        if (priceIsAuto) {
+          const estimate = computeEstimatedPrice(value);
+          next.price = estimate != null ? estimate.toFixed(2) : '';
+          next.priceAuto = true;
+          next.marginSet = false;
+          next.selectedMargin = null;
+          next.originalPrice = undefined;
+        }
+        return next;
+      }
       return { ...item, [field]: value };
     }));
-    if (field === 'landingCost') clearError('landingCost');
+    if (field === 'landingCost') { clearError('landingCost'); clearError('price'); }
     if (field === 'price') clearError('price');
   };
 
@@ -370,23 +386,25 @@ export default function AshleyDealCalculator() {
         if (landingCost > 0) {
           // If clicking the same margin that's already selected, restore original price
           if (item.selectedMargin === targetMargin && item.originalPrice !== undefined) {
-            return { 
-              ...item, 
-              price: item.originalPrice, 
-              marginSet: false, 
+            return {
+              ...item,
+              price: item.originalPrice,
+              priceAuto: false,
+              marginSet: false,
               selectedMargin: null,
-              originalPrice: undefined 
+              originalPrice: undefined
             };
           }
-          
+
           // Store original price if this is the first margin click
           const originalPrice = item.marginSet ? item.originalPrice : item.price;
-          
+
           // Calculate and store the INVOICE price (pre-tax)
           const invoicePrice = priceForMargin(landingCost, targetMargin);
-          return { 
-            ...item, 
-            price: invoicePrice.toFixed(2), 
+          return {
+            ...item,
+            price: invoicePrice.toFixed(2),
+            priceAuto: false,
             marginSet: true,
             selectedMargin: targetMargin,
             originalPrice: originalPrice
@@ -406,12 +424,22 @@ export default function AshleyDealCalculator() {
     return Math.round((retailPrice / 3.3) * 100) / 100;
   };
 
+  // Inverse of computeEstimatedLanding: landing × 3.3 = full retail, then retail → entered-price space
+  const computeEstimatedPrice = (landingValue) => {
+    const landing = parseMoney(landingValue);
+    if (landing <= 0) return null;
+    const retailPrice = landing * 3.3;
+    const price = priceType === 'tag' ? retailPrice : retailPrice * (1 - salePercent / 100);
+    if (price <= 0) return null;
+    return Math.round(price * 100) / 100;
+  };
+
   // FIX: Clear marginSet flag and selectedMargin when user manually edits price.
   // Also auto-estimate landing cost as the price is typed (unless landing was entered manually).
   const updateItemPrice = (id, value) => {
     setItems(items.map(item => {
       if (item.id !== id) return item;
-      const next = { ...item, price: value, marginSet: false, selectedMargin: null, originalPrice: undefined };
+      const next = { ...item, price: value, priceAuto: false, marginSet: false, selectedMargin: null, originalPrice: undefined };
       // Auto-fill landing only when it's empty or still auto-managed — never clobber a manual entry
       const landingIsAuto = item.landingAuto || String(item.landingCost).trim() === '';
       if (landingIsAuto) {
@@ -441,6 +469,7 @@ export default function AshleyDealCalculator() {
         return {
           ...item,
           price: item.originalPrice !== undefined ? item.originalPrice : item.price,
+          priceAuto: false,
           marginSet: false,
           selectedMargin: null,
           originalPrice: undefined,
@@ -452,6 +481,7 @@ export default function AshleyDealCalculator() {
       return {
         ...item,
         price: invoicePrice.toFixed(2),
+        priceAuto: false,
         marginSet: true,
         selectedMargin: targetMargin,
         originalPrice: originalPrice,
@@ -695,7 +725,7 @@ export default function AshleyDealCalculator() {
   // Enter key triggers calculation
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Enter' && !showResults && !showHelp && !showSettingsModal && !showHistory) {
+      if (e.key === 'Enter' && !showResults && !showInvoice && !showHelp && !showSettingsModal && !showHistory) {
         e.preventDefault();
         calculate();
       }
@@ -761,7 +791,7 @@ export default function AshleyDealCalculator() {
       next[index] = {
         ...target,
         ...(fields.name != null ? { name: fields.name } : {}),
-        ...(fields.price != null ? { price: String(fields.price), marginSet: false, selectedMargin: null, originalPrice: undefined } : {}),
+        ...(fields.price != null ? { price: String(fields.price), priceAuto: false, marginSet: false, selectedMargin: null, originalPrice: undefined } : {}),
         ...(fields.qty != null ? { qty: Number(fields.qty) || 1 } : {}),
       };
       return next;
@@ -2354,6 +2384,59 @@ export default function AshleyDealCalculator() {
           * { animation: none !important; transition: none !important; }
         }
 
+        /* ---- Customer Invoice (printable) ---- */
+        .invoice-overlay {
+          position: fixed; inset: 0;
+          background: rgba(15, 17, 23, 0.85);
+          z-index: 9600; overflow-y: auto;
+          padding: 16px;
+          display: flex; flex-direction: column; align-items: center;
+        }
+        .invoice-sheet {
+          background: #fff; color: #111;
+          width: 100%; max-width: 520px;
+          border-radius: 8px;
+          padding: 28px 24px;
+          font-family: Georgia, 'Times New Roman', serif;
+          box-shadow: 0 12px 30px rgba(0,0,0,0.5);
+        }
+        .invoice-header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #111; padding-bottom: 12px; }
+        .invoice-store { font-size: 22px; font-weight: 700; letter-spacing: 0.02em; }
+        .invoice-sub { font-size: 13px; color: #444; margin-top: 2px; }
+        .invoice-meta { font-size: 13px; color: #444; margin-top: 8px; }
+        .invoice-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px; }
+        .invoice-table th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #444; border-bottom: 1px solid #999; padding: 6px 4px; }
+        .invoice-table td { padding: 8px 4px; border-bottom: 1px solid #ddd; }
+        .invoice-num { text-align: right; }
+        .invoice-totals { margin-left: auto; max-width: 280px; }
+        .invoice-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 14px; }
+        .invoice-total { border-top: 2px solid #111; margin-top: 6px; padding-top: 8px; font-size: 18px; font-weight: 700; }
+        .invoice-note { font-size: 12px; color: #444; margin-top: 14px; font-style: italic; }
+        .invoice-footer { font-size: 11px; color: #666; margin-top: 20px; text-align: center; border-top: 1px solid #ddd; padding-top: 10px; }
+        .invoice-actions { display: flex; gap: 10px; margin-top: 12px; width: 100%; max-width: 520px; }
+        .invoice-actions .result-btn { flex: 1; }
+
+        @media print {
+          /* index.html locks the page (position: fixed / overflow: hidden) — undo it so the invoice paginates */
+          html, body { position: static !important; overflow: visible !important; height: auto !important; }
+          #root { height: auto !important; overflow: visible !important; }
+          /* Hide the app but keep the layout tree so the nested invoice can show */
+          body * { visibility: hidden; }
+          .invoice-overlay {
+            position: absolute !important; inset: auto !important; top: 0 !important; left: 0 !important;
+            width: 100% !important; padding: 0 !important; background: none !important;
+            display: block !important; overflow: visible !important;
+          }
+          .invoice-sheet, .invoice-sheet * { visibility: visible; }
+          .invoice-sheet {
+            position: absolute; top: 0; left: 0;
+            width: 100%; max-width: none;
+            border-radius: 0; box-shadow: none; padding: 0;
+          }
+          .no-print { display: none !important; }
+        }
+        @page { margin: 12mm; }
+
       `}</style>
 
       <div className="container">
@@ -2549,7 +2632,7 @@ export default function AshleyDealCalculator() {
                     {item.name || 'Select type...'}
                   </button>
                 )}
-                <div className="money-wrap" style={{ width: 110, flex: 'none' }}>
+                <div className={`money-wrap${item.priceAuto && String(item.price).trim() !== '' ? ' has-auto' : ''}`} style={{ width: 110, flex: 'none' }}>
                   <input
                     type="text"
                     className={`input-compact ${errors.price ? 'input-error' : ''}`}
@@ -2558,6 +2641,9 @@ export default function AshleyDealCalculator() {
                     onChange={(e) => updateItemPrice(item.id, e.target.value)}
                     inputMode="decimal"
                   />
+                  {item.priceAuto && String(item.price).trim() !== '' && (
+                    <span className="auto-tag" title="Auto-estimated from landing — edit to override">auto</span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
                   <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 2 }}>Qty</span>
@@ -2915,6 +3001,12 @@ export default function AshleyDealCalculator() {
                   content={`MARGIN CHECK\n${calculatedItems.filter(i => i.landingProvided).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)} -> Invoice ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '--'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '--'}`).join('\n')}\n\nLanding Total: ${formatMoney(totalLandingCost)}\nInvoice Total: ${subtotal > 0 ? formatMoney(subtotal) : '--'}\nProfit: ${totalProfit > 0 ? formatMoney(totalProfit) : '--'}\nMARGIN: ${overallMargin !== null ? overallMargin.toFixed(1) + '%' : '--'}`}
                 />
 
+            {subtotal > 0 && (
+              <button className="result-btn secondary" style={{ width: '100%', marginTop: '12px' }} onClick={() => setShowInvoice(true)}>
+                🖨️ Print Invoice
+              </button>
+            )}
+
             <div className="result-buttons">
               <button className="result-btn secondary" onClick={startOver}>
                 Start Over
@@ -2924,6 +3016,75 @@ export default function AshleyDealCalculator() {
               </button>
             </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Invoice — customer-facing, printable. No margins, landing costs, or profit here. */}
+      {showInvoice && (
+        <div className="invoice-overlay" onClick={() => setShowInvoice(false)}>
+          <div className="invoice-sheet" onClick={e => e.stopPropagation()}>
+            <div className="invoice-header">
+              <div className="invoice-store">Ashley HomeStore</div>
+              <div className="invoice-sub">Gilroy, California</div>
+              <div className="invoice-meta">Sales Quote — {new Date().toLocaleDateString()}</div>
+            </div>
+            <table className="invoice-table">
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th className="invoice-num">Qty</th>
+                  <th className="invoice-num">Price</th>
+                  <th className="invoice-num">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {calculatedItems.filter(item => item.invoicePrice > 0).map((item, i) => (
+                  <tr key={item.id}>
+                    <td>{item.name || `Item ${i + 1}`}</td>
+                    <td className="invoice-num">{item.qty}</td>
+                    <td className="invoice-num">{formatMoney(noTaxPromo ? item.quotePrice : item.invoicePrice)}</td>
+                    <td className="invoice-num">{formatMoney(noTaxPromo ? item.quotePrice * item.qty : item.lineTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="invoice-totals">
+              <div className="invoice-row">
+                <span>Merchandise Subtotal</span>
+                <span>{noTaxPromo ? formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0)) : formatMoney(subtotal)}</span>
+              </div>
+              {!noTaxPromo && (
+                <div className="invoice-row">
+                  <span>Sales Tax ({TAX_RATE}%)</span>
+                  <span>{formatMoney(taxOnMerchandise)}</span>
+                </div>
+              )}
+              {deliveryAmount > 0 && (
+                <div className="invoice-row">
+                  <span>Delivery{!noTaxPromo ? ' + Tax' : ''}</span>
+                  <span>{formatMoney(deliveryAmount + deliveryTax)}</span>
+                </div>
+              )}
+              {protectionPlanCost > 0 && (
+                <div className="invoice-row">
+                  <span>Protection Plan</span>
+                  <span>{formatMoney(protectionPlanCost)}</span>
+                </div>
+              )}
+              <div className="invoice-row invoice-total">
+                <span>Total</span>
+                <span>{formatMoney(customerTotal)}</span>
+              </div>
+            </div>
+            {noTaxPromo && (
+              <div className="invoice-note">Sales tax included in all prices.</div>
+            )}
+            <div className="invoice-footer">Quote valid today — not a receipt. Thank you for shopping with us!</div>
+          </div>
+          <div className="invoice-actions no-print" onClick={e => e.stopPropagation()}>
+            <button className="result-btn primary" onClick={() => window.print()}>Print</button>
+            <button className="result-btn secondary" onClick={() => setShowInvoice(false)}>Close</button>
           </div>
         </div>
       )}
