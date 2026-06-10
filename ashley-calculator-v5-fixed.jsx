@@ -342,13 +342,27 @@ export default function AshleyDealCalculator() {
     const priceAt49 = landingCost > 0 ? priceForMargin(landingCost, 49) : null;
     const priceAt48 = landingCost > 0 ? priceForMargin(landingCost, 48) : null;
     const priceAt47 = landingCost > 0 ? priceForMargin(landingCost, 47) : null;
-    
-    return { 
-      ...item, 
+
+    // Savings ladder (pre-tax, per unit): Regular (tag) -> Standard sale (salePercent off) -> Your deal (actual charge)
+    const dealUnit = invoicePrice; // what we're actually charging, pre-tax
+    // The standard (pre-deal) price the customer would otherwise pay. If a margin button moved
+    // the price, the original price before the deal is the anchor; otherwise the entered price.
+    const anchorEntered = (item.marginSet && parseMoney(item.originalPrice) > 0)
+      ? parseMoney(item.originalPrice)
+      : rawPrice;
+    const regularUnit = priceType === 'tag'
+      ? anchorEntered
+      : (discount < 1 ? anchorEntered / (1 - discount) : anchorEntered);
+    const standardSaleUnit = priceType === 'tag' ? anchorEntered * (1 - discount) : anchorEntered;
+    // Only call it an extra "deal" when the actual charge beats the standard sale by more than a cent
+    const hasDeal = dealUnit > 0 && (standardSaleUnit - dealUnit) > 0.005;
+
+    return {
+      ...item,
       salePrice: invoicePrice, // salePrice now means invoice price
       invoicePrice,
       quotePrice,
-      lineTotal, 
+      lineTotal,
       qty,
       landingCost,
       landingProvided,
@@ -360,6 +374,10 @@ export default function AshleyDealCalculator() {
       priceAt49,
       priceAt48,
       priceAt47,
+      regularUnit,
+      standardSaleUnit,
+      dealUnit,
+      hasDeal,
     };
   }).filter(item => item.lineTotal > 0 || item.landingCost > 0);
 
@@ -367,6 +385,14 @@ export default function AshleyDealCalculator() {
   const totalLandingCost = calculatedItems.reduce((sum, item) => sum + item.totalLandingCost, 0);
   const totalProfit = calculatedItems.reduce((sum, item) => sum + (item.totalProfit || 0), 0);
   const overallMargin = subtotal > 0 && totalLandingCost > 0 ? calculateMargin(subtotal, totalLandingCost) : null;
+
+  // Savings-ladder totals (pre-tax merchandise). regularTotal anchors the "what it'd normally cost".
+  const regularTotal = calculatedItems.reduce((sum, item) => sum + (item.regularUnit * item.qty), 0);
+  const standardSaleTotal = calculatedItems.reduce((sum, item) => sum + (item.standardSaleUnit * item.qty), 0);
+  const dealTotal = subtotal; // actual pre-tax charge
+  const savingsVsRegular = regularTotal - dealTotal;
+  const savingsVsStandard = standardSaleTotal - dealTotal;
+  const anyDeal = calculatedItems.some(item => item.hasDeal);
   
   const taxOnMerchandise = subtotal * taxRate;
   const totalTax = taxOnMerchandise + deliveryTax;
@@ -374,6 +400,22 @@ export default function AshleyDealCalculator() {
   const protectionPlanCost = includeProtection ? calculateProtectionPlan(subtotal) : 0;
 
   const customerTotal = subtotal + taxOnMerchandise + deliveryAmount + deliveryTax + protectionPlanCost;
+
+  // Manager (Frank) decision summary — everything he needs to approve/reject, in textable form.
+  const marginFloorOk = overallMargin === null || overallMargin >= 47;
+  const managerSummary = subtotal > 0 ? [
+    'DEAL FOR APPROVAL',
+    ...calculatedItems
+      .filter(i => i.landingProvided)
+      .map((item, i) => `${item.name || `Item ${i + 1}`} x${item.qty}: cost ${formatMoney(item.landingCost)} -> ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '--'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '--'}`),
+    '',
+    `Customer pays: ${formatMoney(customerTotal)}`,
+    `Merch ${formatMoney(subtotal)} | Landing ${formatMoney(totalLandingCost)} | Profit ${totalProfit > 0 ? formatMoney(totalProfit) : '--'}`,
+    `Overall margin: ${overallMargin !== null ? overallMargin.toFixed(1) + '%' : '--'} ${marginFloorOk ? '(OK)' : '(BELOW 47% FLOOR - needs approval)'}`,
+    ...(anyDeal ? [`Deal: ${formatMoney(dealTotal)} vs ${formatMoney(standardSaleTotal)} standard sale (extra ${formatMoney(savingsVsStandard)} off)`] : []),
+    '',
+    'Approve?',
+  ].join('\n') : '';
 
   const resetForm = () => setShowResults(false);
   
@@ -2411,6 +2453,9 @@ export default function AshleyDealCalculator() {
         .invoice-totals { margin-left: auto; max-width: 280px; }
         .invoice-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 14px; }
         .invoice-total { border-top: 2px solid #111; margin-top: 6px; padding-top: 8px; font-size: 18px; font-weight: 700; }
+        .invoice-savings { margin-top: 18px; border: 1px solid #ccc; border-radius: 6px; padding: 12px 14px; background: #faf7f2; }
+        .invoice-savings-row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; font-size: 14px; color: #333; }
+        .invoice-savings-total { border-top: 1px solid #bbb; margin-top: 6px; padding-top: 8px; font-size: 17px; font-weight: 700; color: #111; }
         .invoice-note { font-size: 12px; color: #444; margin-top: 14px; font-style: italic; }
         .invoice-footer { font-size: 11px; color: #666; margin-top: 20px; text-align: center; border-top: 1px solid #ddd; padding-top: 10px; }
         .invoice-actions { display: flex; gap: 10px; margin-top: 12px; width: 100%; max-width: 520px; }
@@ -2934,6 +2979,41 @@ export default function AshleyDealCalculator() {
                   </div>
                 </details>
 
+                {/* Your Savings — customer-facing value ladder (Regular -> Sale -> Your Deal) */}
+                {subtotal > 0 && regularTotal > 0 && savingsVsRegular > 0.005 && (
+                  <details className="result-section" open>
+                    <summary>
+                      Your Savings
+                      <span className="summary-chevron">▼</span>
+                    </summary>
+                    <div style={{ marginTop: '8px' }}>
+                      <div className="breakdown-row">
+                        <span className="breakdown-label">Regular price</span>
+                        <span className="breakdown-value" style={{ textDecoration: 'line-through', color: colors.text.secondary }}>{formatMoney(noTaxPromo ? regularTotal * (1 + taxRate) : regularTotal)}</span>
+                      </div>
+                      <div className="breakdown-row">
+                        <span className="breakdown-label">Sale price ({salePercent}% off)</span>
+                        <span className="breakdown-value">{formatMoney(noTaxPromo ? standardSaleTotal * (1 + taxRate) : standardSaleTotal)}</span>
+                      </div>
+                      {anyDeal && (
+                        <div className="breakdown-row">
+                          <span className="breakdown-label" style={{ fontWeight: 700, color: colors.primary[600] || colors.text.primary }}>Your special price</span>
+                          <span className="breakdown-value" style={{ fontWeight: 700, color: colors.primary[600] || colors.text.primary }}>{formatMoney(noTaxPromo ? dealTotal * (1 + taxRate) : dealTotal)}</span>
+                        </div>
+                      )}
+                      <div className="breakdown-row" style={{ background: colors.success.light, margin: '4px -12px 0', padding: '10px 12px', borderRadius: '6px', borderBottom: 'none' }}>
+                        <span className="breakdown-label" style={{ fontWeight: 700, color: colors.success.main, fontSize: '14px' }}>You save</span>
+                        <span className="breakdown-value" style={{ fontSize: '18px', color: colors.success.main }}>{formatMoney(noTaxPromo ? savingsVsRegular * (1 + taxRate) : savingsVsRegular)}</span>
+                      </div>
+                      {noTaxPromo && (
+                        <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
+                          No tax — prices shown include tax
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                )}
+
                 {/* Customer Total Breakdown */}
                 {subtotal > 0 && (
                   <details className="result-section" open>
@@ -2995,11 +3075,22 @@ export default function AshleyDealCalculator() {
                   </div>
                 )}
 
-                {/* Copy for Manager */}
-                <CopyBlock
-                  title="Copy for Manager"
-                  content={`MARGIN CHECK\n${calculatedItems.filter(i => i.landingProvided).map((item, i) => `${item.name || `Item ${i+1}`}: Landing ${formatMoney(item.landingCost)} -> Invoice ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '--'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '--'}`).join('\n')}\n\nLanding Total: ${formatMoney(totalLandingCost)}\nInvoice Total: ${subtotal > 0 ? formatMoney(subtotal) : '--'}\nProfit: ${totalProfit > 0 ? formatMoney(totalProfit) : '--'}\nMARGIN: ${overallMargin !== null ? overallMargin.toFixed(1) + '%' : '--'}`}
-                />
+                {/* Send to Frank (Manager) — decision-ready summary, copy or text */}
+                {subtotal > 0 && (
+                  <>
+                    <CopyBlock
+                      title="Send to Frank (Manager)"
+                      content={managerSummary}
+                    />
+                    <a
+                      className="result-btn secondary"
+                      style={{ width: '100%', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+                      href={`sms:?&body=${encodeURIComponent(managerSummary)}`}
+                    >
+                      💬 Text Frank
+                    </a>
+                  </>
+                )}
 
             {subtotal > 0 && (
               <button className="result-btn secondary" style={{ width: '100%', marginTop: '12px' }} onClick={() => setShowInvoice(true)}>
@@ -3077,6 +3168,28 @@ export default function AshleyDealCalculator() {
                 <span>{formatMoney(customerTotal)}</span>
               </div>
             </div>
+            {regularTotal > 0 && savingsVsRegular > 0.005 && (
+              <div className="invoice-savings">
+                <div className="invoice-savings-row">
+                  <span>Regular price</span>
+                  <span style={{ textDecoration: 'line-through' }}>{formatMoney(noTaxPromo ? regularTotal * (1 + taxRate) : regularTotal)}</span>
+                </div>
+                <div className="invoice-savings-row">
+                  <span>Sale price ({salePercent}% off)</span>
+                  <span>{formatMoney(noTaxPromo ? standardSaleTotal * (1 + taxRate) : standardSaleTotal)}</span>
+                </div>
+                {anyDeal && (
+                  <div className="invoice-savings-row">
+                    <span>Your special price</span>
+                    <span>{formatMoney(noTaxPromo ? dealTotal * (1 + taxRate) : dealTotal)}</span>
+                  </div>
+                )}
+                <div className="invoice-savings-row invoice-savings-total">
+                  <span>You save</span>
+                  <span>{formatMoney(noTaxPromo ? savingsVsRegular * (1 + taxRate) : savingsVsRegular)}</span>
+                </div>
+              </div>
+            )}
             {noTaxPromo && (
               <div className="invoice-note">Sales tax included in all prices.</div>
             )}
