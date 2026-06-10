@@ -393,6 +393,10 @@ export default function AshleyDealCalculator() {
   const savingsVsRegular = regularTotal - dealTotal;
   const savingsVsStandard = standardSaleTotal - dealTotal;
   const anyDeal = calculatedItems.some(item => item.hasDeal);
+  // Items that carry a price worth comparing in the savings table
+  const ladderItems = calculatedItems.filter(item => item.regularUnit > 0);
+  // Show prices tax-included when the No-Tax promo is on, to match the rest of the customer view
+  const taxAdj = (v) => noTaxPromo ? v * (1 + taxRate) : v;
   
   const taxOnMerchandise = subtotal * taxRate;
   const totalTax = taxOnMerchandise + deliveryTax;
@@ -2454,8 +2458,13 @@ export default function AshleyDealCalculator() {
         .invoice-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 14px; }
         .invoice-total { border-top: 2px solid #111; margin-top: 6px; padding-top: 8px; font-size: 18px; font-weight: 700; }
         .invoice-savings { margin-top: 18px; border: 1px solid #ccc; border-radius: 6px; padding: 12px 14px; background: #faf7f2; }
-        .invoice-savings-row { display: flex; justify-content: space-between; gap: 16px; padding: 3px 0; font-size: 14px; color: #333; }
-        .invoice-savings-total { border-top: 1px solid #bbb; margin-top: 6px; padding-top: 8px; font-size: 17px; font-weight: 700; color: #111; }
+        .invoice-savings-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #444; margin-bottom: 8px; }
+        .invoice-savings-table { width: 100%; border-collapse: collapse; font-size: 13px; color: #333; }
+        .invoice-savings-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; border-bottom: 1px solid #bbb; padding: 4px 4px; }
+        .invoice-savings-table td { padding: 6px 4px; border-bottom: 1px solid #e3ddd2; }
+        .invoice-savings-table .invoice-deal { font-weight: 700; color: #111; }
+        .invoice-savings-totalrow td { font-weight: 700; color: #111; border-bottom: none; border-top: 1px solid #bbb; }
+        .invoice-savings-banner { margin-top: 10px; text-align: center; font-size: 16px; font-weight: 700; color: #111; }
         .invoice-note { font-size: 12px; color: #444; margin-top: 14px; font-style: italic; }
         .invoice-footer { font-size: 11px; color: #666; margin-top: 20px; text-align: center; border-top: 1px solid #ddd; padding-top: 10px; }
         .invoice-actions { display: flex; gap: 10px; margin-top: 12px; width: 100%; max-width: 520px; }
@@ -2979,38 +2988,49 @@ export default function AshleyDealCalculator() {
                   </div>
                 </details>
 
-                {/* Your Savings — customer-facing value ladder (Regular -> Sale -> Your Deal) */}
+                {/* Your Savings — customer-facing side-by-side comparison (Regular | Sale | Your Deal) */}
                 {subtotal > 0 && regularTotal > 0 && savingsVsRegular > 0.005 && (
                   <details className="result-section" open>
                     <summary>
                       Your Savings
                       <span className="summary-chevron">▼</span>
                     </summary>
-                    <div style={{ marginTop: '8px' }}>
-                      <div className="breakdown-row">
-                        <span className="breakdown-label">Regular price</span>
-                        <span className="breakdown-value" style={{ textDecoration: 'line-through', color: colors.text.secondary }}>{formatMoney(noTaxPromo ? regularTotal * (1 + taxRate) : regularTotal)}</span>
-                      </div>
-                      <div className="breakdown-row">
-                        <span className="breakdown-label">Sale price ({salePercent}% off)</span>
-                        <span className="breakdown-value">{formatMoney(noTaxPromo ? standardSaleTotal * (1 + taxRate) : standardSaleTotal)}</span>
-                      </div>
-                      {anyDeal && (
-                        <div className="breakdown-row">
-                          <span className="breakdown-label" style={{ fontWeight: 700, color: colors.primary[600] || colors.text.primary }}>Your special price</span>
-                          <span className="breakdown-value" style={{ fontWeight: 700, color: colors.primary[600] || colors.text.primary }}>{formatMoney(noTaxPromo ? dealTotal * (1 + taxRate) : dealTotal)}</span>
-                        </div>
-                      )}
-                      <div className="breakdown-row" style={{ background: colors.success.light, margin: '4px -12px 0', padding: '10px 12px', borderRadius: '6px', borderBottom: 'none' }}>
-                        <span className="breakdown-label" style={{ fontWeight: 700, color: colors.success.main, fontSize: '14px' }}>You save</span>
-                        <span className="breakdown-value" style={{ fontSize: '18px', color: colors.success.main }}>{formatMoney(noTaxPromo ? savingsVsRegular * (1 + taxRate) : savingsVsRegular)}</span>
-                      </div>
-                      {noTaxPromo && (
-                        <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
-                          No tax — prices shown include tax
-                        </div>
-                      )}
+                    <div style={{ overflowX: 'auto', margin: '8px -8px 0' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ padding: '6px 6px', textAlign: 'left', fontWeight: 600, color: colors.text.secondary, borderBottom: `1px solid ${colors.primary[200]}` }}>Item</th>
+                            <th style={{ padding: '6px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.secondary, borderBottom: `1px solid ${colors.primary[200]}` }}>Regular</th>
+                            <th style={{ padding: '6px 6px', textAlign: 'right', fontWeight: 600, color: colors.text.secondary, borderBottom: `1px solid ${colors.primary[200]}` }}>Sale {salePercent}% off</th>
+                            {anyDeal && <th style={{ padding: '6px 6px', textAlign: 'right', fontWeight: 700, color: colors.primary[400], borderBottom: `1px solid ${colors.primary[200]}` }}>Your Deal</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ladderItems.map((item, i) => (
+                            <tr key={item.id} style={{ borderBottom: `1px solid ${colors.primary[100]}` }}>
+                              <td style={{ padding: '7px 6px', color: colors.text.primary }}>{item.name || `Item ${i + 1}`}{item.qty > 1 ? ` ×${item.qty}` : ''}</td>
+                              <td style={{ padding: '7px 6px', textAlign: 'right', color: colors.text.secondary, textDecoration: 'line-through' }}>{formatMoney(taxAdj(item.regularUnit * item.qty))}</td>
+                              <td style={{ padding: '7px 6px', textAlign: 'right', color: colors.text.primary }}>{formatMoney(taxAdj(item.standardSaleUnit * item.qty))}</td>
+                              {anyDeal && <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: colors.primary[400] }}>{formatMoney(taxAdj(item.dealUnit * item.qty))}</td>}
+                            </tr>
+                          ))}
+                          <tr style={{ fontWeight: 700 }}>
+                            <td style={{ padding: '9px 6px', color: colors.text.primary }}>TOTAL</td>
+                            <td style={{ padding: '9px 6px', textAlign: 'right', color: colors.text.secondary, textDecoration: 'line-through' }}>{formatMoney(taxAdj(regularTotal))}</td>
+                            <td style={{ padding: '9px 6px', textAlign: 'right', color: colors.text.primary }}>{formatMoney(taxAdj(standardSaleTotal))}</td>
+                            {anyDeal && <td style={{ padding: '9px 6px', textAlign: 'right', color: colors.primary[400] }}>{formatMoney(taxAdj(dealTotal))}</td>}
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
+                    <div style={{ background: colors.success.light, borderRadius: '6px', padding: '10px 12px', marginTop: '8px', textAlign: 'center' }}>
+                      <span style={{ fontWeight: 700, color: colors.success.main, fontSize: '16px' }}>You save {formatMoney(taxAdj(savingsVsRegular))} off regular!</span>
+                    </div>
+                    {noTaxPromo && (
+                      <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
+                        No tax — prices shown include tax
+                      </div>
+                    )}
                   </details>
                 )}
 
@@ -3170,24 +3190,34 @@ export default function AshleyDealCalculator() {
             </div>
             {regularTotal > 0 && savingsVsRegular > 0.005 && (
               <div className="invoice-savings">
-                <div className="invoice-savings-row">
-                  <span>Regular price</span>
-                  <span style={{ textDecoration: 'line-through' }}>{formatMoney(noTaxPromo ? regularTotal * (1 + taxRate) : regularTotal)}</span>
-                </div>
-                <div className="invoice-savings-row">
-                  <span>Sale price ({salePercent}% off)</span>
-                  <span>{formatMoney(noTaxPromo ? standardSaleTotal * (1 + taxRate) : standardSaleTotal)}</span>
-                </div>
-                {anyDeal && (
-                  <div className="invoice-savings-row">
-                    <span>Your special price</span>
-                    <span>{formatMoney(noTaxPromo ? dealTotal * (1 + taxRate) : dealTotal)}</span>
-                  </div>
-                )}
-                <div className="invoice-savings-row invoice-savings-total">
-                  <span>You save</span>
-                  <span>{formatMoney(noTaxPromo ? savingsVsRegular * (1 + taxRate) : savingsVsRegular)}</span>
-                </div>
+                <div className="invoice-savings-title">Your Savings</div>
+                <table className="invoice-savings-table">
+                  <thead>
+                    <tr>
+                      <th>Item</th>
+                      <th className="invoice-num">Regular</th>
+                      <th className="invoice-num">Sale {salePercent}% off</th>
+                      {anyDeal && <th className="invoice-num">Your Deal</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ladderItems.map((item, i) => (
+                      <tr key={item.id}>
+                        <td>{item.name || `Item ${i + 1}`}{item.qty > 1 ? ` ×${item.qty}` : ''}</td>
+                        <td className="invoice-num"><s>{formatMoney(taxAdj(item.regularUnit * item.qty))}</s></td>
+                        <td className="invoice-num">{formatMoney(taxAdj(item.standardSaleUnit * item.qty))}</td>
+                        {anyDeal && <td className="invoice-num invoice-deal">{formatMoney(taxAdj(item.dealUnit * item.qty))}</td>}
+                      </tr>
+                    ))}
+                    <tr className="invoice-savings-totalrow">
+                      <td>TOTAL</td>
+                      <td className="invoice-num"><s>{formatMoney(taxAdj(regularTotal))}</s></td>
+                      <td className="invoice-num">{formatMoney(taxAdj(standardSaleTotal))}</td>
+                      {anyDeal && <td className="invoice-num invoice-deal">{formatMoney(taxAdj(dealTotal))}</td>}
+                    </tr>
+                  </tbody>
+                </table>
+                <div className="invoice-savings-banner">You save {formatMoney(taxAdj(savingsVsRegular))} off regular!</div>
               </div>
             )}
             {noTaxPromo && (
