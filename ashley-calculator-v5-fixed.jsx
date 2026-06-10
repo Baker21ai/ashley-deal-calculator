@@ -147,6 +147,7 @@ export default function AshleyDealCalculator() {
   // Results
   const [showResults, setShowResults] = useState(false);
   const [showInvoice, setShowInvoice] = useState(false);
+  const [quoteTitle, setQuoteTitle] = useState('Your Furniture Quote');
   const [errors, setErrors] = useState({});
 
   // Confirmation modal
@@ -397,6 +398,13 @@ export default function AshleyDealCalculator() {
   const ladderItems = calculatedItems.filter(item => item.regularUnit > 0);
   // Show prices tax-included when the No-Tax promo is on, to match the rest of the customer view
   const taxAdj = (v) => noTaxPromo ? v * (1 + taxRate) : v;
+
+  // Customer Quote two-card comparison: Regular (full retail, always WITH tax + delivery) vs the actual deal.
+  const regularTaxable = regularTotal + deliveryAmount;
+  const regularSalesTax = regularTaxable * taxRate;
+  const regularGrandTotal = regularTaxable + regularSalesTax + protectionPlanCost;
+  const saleSalesTax = taxOnMerchandise + deliveryTax; // tax baked into the deal
+  const quoteSavings = regularGrandTotal - customerTotal;
   
   const taxOnMerchandise = subtotal * taxRate;
   const totalTax = taxOnMerchandise + deliveryTax;
@@ -420,6 +428,25 @@ export default function AshleyDealCalculator() {
     '',
     'Approve?',
   ].join('\n') : '';
+
+  // Share the customer quote via the phone's native share sheet, falling back to print.
+  const handleShareQuote = async () => {
+    const text = [
+      quoteTitle,
+      `Regular price: ${formatMoney(regularGrandTotal)}`,
+      `Your price${noTaxPromo ? ' (NO TAX!)' : ''}: ${formatMoney(customerTotal)}`,
+      `You save: ${formatMoney(quoteSavings)}`,
+    ].join('\n');
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({ title: quoteTitle, text });
+      } catch (e) {
+        // user cancelled or share unavailable — no-op
+      }
+    } else {
+      window.print();
+    }
+  };
 
   const resetForm = () => setShowResults(false);
   
@@ -2446,27 +2473,35 @@ export default function AshleyDealCalculator() {
           font-family: Georgia, 'Times New Roman', serif;
           box-shadow: 0 12px 30px rgba(0,0,0,0.5);
         }
-        .invoice-header { text-align: center; margin-bottom: 20px; border-bottom: 2px solid #111; padding-bottom: 12px; }
-        .invoice-store { font-size: 22px; font-weight: 700; letter-spacing: 0.02em; }
-        .invoice-sub { font-size: 13px; color: #444; margin-top: 2px; }
-        .invoice-meta { font-size: 13px; color: #444; margin-top: 8px; }
-        .invoice-table { width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 16px; }
-        .invoice-table th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #444; border-bottom: 1px solid #999; padding: 6px 4px; }
-        .invoice-table td { padding: 8px 4px; border-bottom: 1px solid #ddd; }
-        .invoice-num { text-align: right; }
-        .invoice-totals { margin-left: auto; max-width: 280px; }
-        .invoice-row { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; font-size: 14px; }
-        .invoice-total { border-top: 2px solid #111; margin-top: 6px; padding-top: 8px; font-size: 18px; font-weight: 700; }
-        .invoice-savings { margin-top: 18px; border: 1px solid #ccc; border-radius: 6px; padding: 12px 14px; background: #faf7f2; }
-        .invoice-savings-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #444; margin-bottom: 8px; }
-        .invoice-savings-table { width: 100%; border-collapse: collapse; font-size: 13px; color: #333; }
-        .invoice-savings-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; border-bottom: 1px solid #bbb; padding: 4px 4px; }
-        .invoice-savings-table td { padding: 6px 4px; border-bottom: 1px solid #e3ddd2; }
-        .invoice-savings-table .invoice-deal { font-weight: 700; color: #111; }
-        .invoice-savings-totalrow td { font-weight: 700; color: #111; border-bottom: none; border-top: 1px solid #bbb; }
-        .invoice-savings-banner { margin-top: 10px; text-align: center; font-size: 16px; font-weight: 700; color: #111; }
-        .invoice-note { font-size: 12px; color: #444; margin-top: 14px; font-style: italic; }
-        .invoice-footer { font-size: 11px; color: #666; margin-top: 20px; text-align: center; border-top: 1px solid #ddd; padding-top: 10px; }
+        /* Customer quote header */
+        .quote-header { text-align: center; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid #ddd; }
+        .quote-glyph { font-size: 20px; color: #b08d2e; letter-spacing: 4px; margin-bottom: 6px; }
+        .quote-title-input {
+          width: 100%; text-align: center; border: none; outline: none; background: transparent;
+          font-family: 'DM Serif Display', Georgia, serif; font-size: 26px; color: #1a1a1a;
+          letter-spacing: 0.04em; padding: 2px 0; border-bottom: 1px dashed transparent;
+        }
+        .quote-title-input:focus { border-bottom: 1px dashed #b08d2e; }
+        .quote-tagline { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.18em; margin-top: 6px; }
+        /* Two comparison cards */
+        .quote-cards { display: flex; gap: 14px; }
+        .quote-card { flex: 1; border: 1px solid #e0ddd6; border-radius: 10px; padding: 16px; background: #fcfbf9; min-width: 0; }
+        .quote-card.sale { border-color: #c9a85c; background: #fbf6ea; box-shadow: 0 2px 10px rgba(176,141,46,0.15); }
+        .quote-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; min-height: 22px; }
+        .quote-card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #666; }
+        .quote-card.sale .quote-card-title { color: #8a6418; }
+        .no-tax-badge { background: #8a6418; color: #fff; font-size: 9px; font-weight: 800; padding: 3px 6px; border-radius: 4px; letter-spacing: 0.08em; white-space: nowrap; }
+        .quote-line { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: 13px; color: #555; }
+        .quote-card-total { display: flex; justify-content: space-between; gap: 10px; border-top: 1px solid #d8d3c8; margin-top: 8px; padding-top: 10px; font-size: 19px; font-weight: 700; color: #111; }
+        .quote-card.sale .quote-card-total { color: #6b4e12; }
+        /* Savings highlight */
+        .quote-savings { text-align: center; margin-top: 22px; }
+        .quote-savings-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #777; }
+        .quote-savings-amount { font-size: 34px; font-weight: 800; color: #b3261e; line-height: 1.1; margin-top: 2px; }
+        .quote-prepared { text-align: center; font-style: italic; color: #999; font-size: 12px; margin-top: 18px; }
+        @media (max-width: 480px) {
+          .quote-cards { flex-direction: column; }
+        }
         .invoice-actions { display: flex; gap: 10px; margin-top: 12px; width: 100%; max-width: 520px; }
         .invoice-actions .result-btn { flex: 1; }
 
@@ -3114,7 +3149,7 @@ export default function AshleyDealCalculator() {
 
             {subtotal > 0 && (
               <button className="result-btn secondary" style={{ width: '100%', marginTop: '12px' }} onClick={() => setShowInvoice(true)}>
-                🖨️ Print Invoice
+                📄 Customer Quote
               </button>
             )}
 
@@ -3131,102 +3166,59 @@ export default function AshleyDealCalculator() {
         </div>
       )}
 
-      {/* Customer Invoice — customer-facing, printable. No margins, landing costs, or profit here. */}
+      {/* Customer Quote — customer-facing, printable/shareable. No margins, landing costs, or profit here. */}
       {showInvoice && (
         <div className="invoice-overlay" onClick={() => setShowInvoice(false)}>
           <div className="invoice-sheet" onClick={e => e.stopPropagation()}>
-            <div className="invoice-header">
-              <div className="invoice-store">Ashley HomeStore</div>
-              <div className="invoice-sub">Gilroy, California</div>
-              <div className="invoice-meta">Sales Quote — {new Date().toLocaleDateString()}</div>
+            <div className="quote-header">
+              <div className="quote-glyph">◆</div>
+              <input
+                className="quote-title-input"
+                value={quoteTitle}
+                onChange={(e) => setQuoteTitle(e.target.value)}
+                aria-label="Quote title — tap to edit"
+                title="Tap to edit"
+              />
+              <div className="quote-tagline">Comfort · Quality · Value</div>
             </div>
-            <table className="invoice-table">
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th className="invoice-num">Qty</th>
-                  <th className="invoice-num">Price</th>
-                  <th className="invoice-num">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {calculatedItems.filter(item => item.invoicePrice > 0).map((item, i) => (
-                  <tr key={item.id}>
-                    <td>{item.name || `Item ${i + 1}`}</td>
-                    <td className="invoice-num">{item.qty}</td>
-                    <td className="invoice-num">{formatMoney(noTaxPromo ? item.quotePrice : item.invoicePrice)}</td>
-                    <td className="invoice-num">{formatMoney(noTaxPromo ? item.quotePrice * item.qty : item.lineTotal)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="invoice-totals">
-              <div className="invoice-row">
-                <span>Merchandise Subtotal</span>
-                <span>{noTaxPromo ? formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0)) : formatMoney(subtotal)}</span>
+
+            <div className="quote-cards">
+              <div className="quote-card regular">
+                <div className="quote-card-head">
+                  <span className="quote-card-title">Regular Price</span>
+                </div>
+                <div className="quote-line"><span>Furniture Subtotal</span><span>{formatMoney(regularTotal)}</span></div>
+                {deliveryAmount > 0 && <div className="quote-line"><span>Delivery</span><span>{formatMoney(deliveryAmount)}</span></div>}
+                <div className="quote-line"><span>Sales Tax ({TAX_RATE}%)</span><span>{formatMoney(regularSalesTax)}</span></div>
+                {protectionPlanCost > 0 && <div className="quote-line"><span>Protection Plan</span><span>{formatMoney(protectionPlanCost)}</span></div>}
+                <div className="quote-card-total"><span>Total</span><span>{formatMoney(regularGrandTotal)}</span></div>
               </div>
-              {!noTaxPromo && (
-                <div className="invoice-row">
-                  <span>Sales Tax ({TAX_RATE}%)</span>
-                  <span>{formatMoney(taxOnMerchandise)}</span>
+
+              <div className="quote-card sale">
+                <div className="quote-card-head">
+                  <span className="quote-card-title">Your Price</span>
+                  {noTaxPromo && <span className="no-tax-badge">NO TAX</span>}
                 </div>
-              )}
-              {deliveryAmount > 0 && (
-                <div className="invoice-row">
-                  <span>Delivery{!noTaxPromo ? ' + Tax' : ''}</span>
-                  <span>{formatMoney(deliveryAmount + deliveryTax)}</span>
-                </div>
-              )}
-              {protectionPlanCost > 0 && (
-                <div className="invoice-row">
-                  <span>Protection Plan</span>
-                  <span>{formatMoney(protectionPlanCost)}</span>
-                </div>
-              )}
-              <div className="invoice-row invoice-total">
-                <span>Total</span>
-                <span>{formatMoney(customerTotal)}</span>
+                <div className="quote-line"><span>Furniture Subtotal</span><span>{formatMoney(subtotal)}</span></div>
+                {deliveryAmount > 0 && <div className="quote-line"><span>Delivery</span><span>{formatMoney(deliveryAmount)}</span></div>}
+                <div className="quote-line"><span>Sales Tax{noTaxPromo ? '' : ` (${TAX_RATE}%)`}</span><span>{noTaxPromo ? 'Included' : formatMoney(saleSalesTax)}</span></div>
+                {protectionPlanCost > 0 && <div className="quote-line"><span>Protection Plan</span><span>{formatMoney(protectionPlanCost)}</span></div>}
+                <div className="quote-card-total"><span>Total</span><span>{formatMoney(customerTotal)}</span></div>
               </div>
             </div>
-            {regularTotal > 0 && savingsVsRegular > 0.005 && (
-              <div className="invoice-savings">
-                <div className="invoice-savings-title">Your Savings</div>
-                <table className="invoice-savings-table">
-                  <thead>
-                    <tr>
-                      <th>Item</th>
-                      <th className="invoice-num">Regular</th>
-                      <th className="invoice-num">Sale {salePercent}% off</th>
-                      {anyDeal && <th className="invoice-num">Your Deal</th>}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ladderItems.map((item, i) => (
-                      <tr key={item.id}>
-                        <td>{item.name || `Item ${i + 1}`}{item.qty > 1 ? ` ×${item.qty}` : ''}</td>
-                        <td className="invoice-num"><s>{formatMoney(taxAdj(item.regularUnit * item.qty))}</s></td>
-                        <td className="invoice-num">{formatMoney(taxAdj(item.standardSaleUnit * item.qty))}</td>
-                        {anyDeal && <td className="invoice-num invoice-deal">{formatMoney(taxAdj(item.dealUnit * item.qty))}</td>}
-                      </tr>
-                    ))}
-                    <tr className="invoice-savings-totalrow">
-                      <td>TOTAL</td>
-                      <td className="invoice-num"><s>{formatMoney(taxAdj(regularTotal))}</s></td>
-                      <td className="invoice-num">{formatMoney(taxAdj(standardSaleTotal))}</td>
-                      {anyDeal && <td className="invoice-num invoice-deal">{formatMoney(taxAdj(dealTotal))}</td>}
-                    </tr>
-                  </tbody>
-                </table>
-                <div className="invoice-savings-banner">You save {formatMoney(taxAdj(savingsVsRegular))} off regular!</div>
+
+            {quoteSavings > 0.005 && (
+              <div className="quote-savings">
+                <div className="quote-savings-label">Customer Savings</div>
+                <div className="quote-savings-amount">{formatMoney(quoteSavings)}</div>
               </div>
             )}
-            {noTaxPromo && (
-              <div className="invoice-note">Sales tax included in all prices.</div>
-            )}
-            <div className="invoice-footer">Quote valid today — not a receipt. Thank you for shopping with us!</div>
+
+            <div className="quote-prepared">Prepared for customer review · {new Date().toLocaleDateString()}</div>
           </div>
           <div className="invoice-actions no-print" onClick={e => e.stopPropagation()}>
-            <button className="result-btn primary" onClick={() => window.print()}>Print</button>
+            <button className="result-btn primary" onClick={handleShareQuote}>Share</button>
+            <button className="result-btn secondary" onClick={() => window.print()}>Print</button>
             <button className="result-btn secondary" onClick={() => setShowInvoice(false)}>Close</button>
           </div>
         </div>
