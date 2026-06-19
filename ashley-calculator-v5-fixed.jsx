@@ -399,19 +399,20 @@ export default function AshleyDealCalculator() {
   // Show prices tax-included when the No-Tax promo is on, to match the rest of the customer view
   const taxAdj = (v) => noTaxPromo ? v * (1 + taxRate) : v;
 
-  // Customer Quote two-card comparison: Regular (full retail, always WITH tax + delivery) vs the actual deal.
-  const regularTaxable = regularTotal + deliveryAmount;
-  const regularSalesTax = regularTaxable * taxRate;
-  const regularGrandTotal = regularTaxable + regularSalesTax + protectionPlanCost;
-  const saleSalesTax = taxOnMerchandise + deliveryTax; // tax baked into the deal
-  const quoteSavings = regularGrandTotal - customerTotal;
-  
   const taxOnMerchandise = subtotal * taxRate;
   const totalTax = taxOnMerchandise + deliveryTax;
 
   const protectionPlanCost = includeProtection ? calculateProtectionPlan(subtotal) : 0;
 
   const customerTotal = subtotal + taxOnMerchandise + deliveryAmount + deliveryTax + protectionPlanCost;
+
+  // Customer Quote two-card comparison: Regular (full retail, always WITH tax + delivery) vs the actual deal.
+  // Declared after customerTotal/taxOnMerchandise/protectionPlanCost so it doesn't read them before init (TDZ).
+  const regularTaxable = regularTotal + deliveryAmount;
+  const regularSalesTax = regularTaxable * taxRate;
+  const regularGrandTotal = regularTaxable + regularSalesTax + protectionPlanCost;
+  const saleSalesTax = taxOnMerchandise + deliveryTax; // tax baked into the deal
+  const quoteSavings = regularGrandTotal - customerTotal;
 
   // Manager (Frank) decision summary — everything he needs to approve/reject, in textable form.
   const marginFloorOk = overallMargin === null || overallMargin >= 47;
