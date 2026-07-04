@@ -958,7 +958,7 @@ export default function AshleyDealCalculator() {
   }), [setItemFields, estimateLandingByIndex, setAllItemsToMargin, clearItems]);
 
   return (
-    <div className="app">
+    <div className={`app${easyRead ? ' easy-read' : ''}`}>
       <style>{`
         * { box-sizing: border-box; }
         :root {
@@ -2564,6 +2564,28 @@ export default function AshleyDealCalculator() {
 
         /* Hints mode captions */
         .hint { font-size: var(--text-xs); color: var(--muted); font-style: italic; line-height: 1.4; margin: 4px 2px 0; }
+
+        /* Easy Read (Big Text) mode — larger type, bigger targets, brighter secondary text.
+           zoom scales the many hardcoded px sizes (incl. inline styles) that CSS vars can't reach;
+           applied to inner containers so .app's 100dvh scroll stays viewport-true. */
+        .easy-read { --tap: 52px; --muted: #C3C8D4; --text-xs: 12px; --text-sm: 14px; --text-md: 17px; }
+        @supports (zoom: 1.1) {
+          .easy-read .container,
+          .easy-read .result-card,
+          .easy-read .help-modal,
+          .easy-read .invoice-sheet,
+          .easy-read .calc-sheet,
+          .easy-read .sticky-bottom { zoom: 1.15; }
+        }
+        .easy-read .setting-chip { min-height: var(--tap); font-size: 14px; }
+        .easy-read .pill-compact { min-height: 40px; font-size: 14px; }
+        .easy-read .input-compact, .easy-read .input-qty-compact { min-height: var(--tap); font-size: 17px; }
+        .easy-read .item-estimate-btn, .easy-read .item-remove-btn { min-width: var(--tap); min-height: var(--tap); white-space: nowrap; }
+        .easy-read .sheet-close, .easy-read .help-close { min-height: var(--tap); }
+        .easy-read .breakdown-label, .easy-read .breakdown-value { font-size: 16px; }
+        /* 4-across preset row overflows at 1.15 zoom on narrow phones — wrap to 2x2 */
+        .easy-read .margin-prices { flex-wrap: wrap; }
+        .easy-read .margin-price-box { flex: 1 1 40%; }
         /* Two comparison cards */
         .quote-cards { display: flex; gap: 14px; }
         .quote-card { flex: 1; border: 1px solid #e0ddd6; border-radius: 10px; padding: 16px; background: #fcfbf9; min-width: 0; }
@@ -2685,13 +2707,20 @@ export default function AshleyDealCalculator() {
             Protection {includeProtection ? 'ON' : 'OFF'}
           </button>
           <button
+            className={`setting-chip ${easyRead ? 'active' : ''}`}
+            aria-pressed={easyRead}
+            onClick={() => setEasyRead(!easyRead)}
+          >
+            Aa Big Text
+          </button>
+          <button
             className={`setting-chip ${hintsOn ? 'active' : ''}`}
             aria-pressed={hintsOn}
             onClick={() => setHintsOn(!hintsOn)}
           >
             💡 Hints
           </button>
-          <button className="setting-chip gear" onClick={() => setShowSettingsModal(true)}>⚙</button>
+          <button className="setting-chip gear" onClick={() => setShowSettingsModal(true)}>{easyRead ? '⚙ Settings' : '⚙'}</button>
         </div>
         <Hint>These chips set the deal: tap Sale % to cycle discounts, No-Tax for the tax-included promo, Del for delivery</Hint>
 
@@ -2757,6 +2786,14 @@ export default function AshleyDealCalculator() {
                       $150 (0–1k) · $200 (1–2k) · $250 (2–3k) · $300 (3–4k) · $350 (4–5k) · $500 (5–6k) · +$50/1k after
                     </div>
                   )}
+                </div>
+                <div className="setting-group">
+                  <label>Big Text (Easy Read)</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className={`toggle-compact ${easyRead ? 'on' : ''}`} role="switch" aria-checked={easyRead} aria-label="Big Text (Easy Read)" tabIndex={0} onClick={() => setEasyRead(!easyRead)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEasyRead(!easyRead); }}} />
+                    <span style={{ fontSize: 11, color: easyRead ? colors.success.main : colors.text.secondary }}>{easyRead ? 'ON' : 'OFF'}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>Larger text, bigger buttons, brighter labels</div>
                 </div>
                 <div className="setting-group">
                   <label>Hints</label>
