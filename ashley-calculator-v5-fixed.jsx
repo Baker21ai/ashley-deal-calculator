@@ -2,6 +2,7 @@ import { useState, useLayoutEffect, useMemo, useEffect, useRef, useCallback } fr
 import CoachBubble from './src/CoachBubble.jsx';
 import Calculator from './src/Calculator.jsx';
 import { dealSnapshot } from './src/dialogueManager.js';
+import { allocatePackagePieces } from './src/packageAlloc.js';
 
 const TAX_RATE = 9.125;
 const STORAGE_KEY = 'ashley-calculator-state';
@@ -19,6 +20,7 @@ const MORE_ITEM_PRESETS = [
 const createEmptyItem = (id = Date.now()) => ({
   id,
   name: '',
+  sku: '',
   price: '',
   qty: 1,
   landingCost: '',
@@ -27,6 +29,8 @@ const createEmptyItem = (id = Date.now()) => ({
   marginSet: false,
   selectedMargin: null,
   originalPrice: undefined,
+  packageId: null, // set when this item is a piece of a package
+  piecePinned: false, // package piece with a manually-set price (excluded from auto-split)
 });
 
 const normalizeItem = (item, fallbackId) => {
@@ -35,6 +39,7 @@ const normalizeItem = (item, fallbackId) => {
   return {
     id: safeItem.id ?? fallbackId,
     name: safeItem.name ?? '',
+    sku: safeItem.sku ?? '',
     price: safeItem.price ?? '',
     qty: Number.isFinite(qtyValue) && qtyValue > 0 ? qtyValue : 1,
     landingCost: safeItem.landingCost ?? '',
@@ -43,6 +48,8 @@ const normalizeItem = (item, fallbackId) => {
     marginSet: Boolean(safeItem.marginSet),
     selectedMargin: safeItem.selectedMargin ?? null,
     originalPrice: safeItem.originalPrice,
+    packageId: safeItem.packageId ?? null,
+    piecePinned: Boolean(safeItem.piecePinned),
   };
 };
 
@@ -89,6 +96,13 @@ function formatMoney(num) {
 
 function parseMoney(str) {
   return parseFloat(String(str).replace(/[$,]/g, '')) || 0;
+}
+
+// Display name for an item, with its item number (SKU) when one was entered
+function itemLabel(item, i) {
+  const name = item.name || `Item ${i + 1}`;
+  const sku = String(item.sku || '').trim();
+  return sku ? `${name} #${sku}` : name;
 }
 
 // Calculate margin given sale price and landing cost
@@ -190,6 +204,23 @@ export default function AshleyDealCalculator() {
     typeof storedState?.includeProtection === 'boolean' ? storedState.includeProtection : false
   );
 
+  // View & accessibility preferences (persisted)
+  const [resultsView, setResultsView] = useState(
+    storedState?.resultsView === 'detailed' ? 'detailed' : 'simple'
+  );
+  const [easyRead, setEasyRead] = useState(
+    typeof storedState?.easyRead === 'boolean' ? storedState.easyRead : false
+  );
+  // Hints default ON for brand-new users (no saved state yet), OFF stays off once toggled
+  const [hintsOn, setHintsOn] = useState(
+    typeof storedState?.hintsOn === 'boolean' ? storedState.hintsOn : storedState === null
+  );
+
+  // Package groups: [{ id, name, price }] — pieces are items with a matching packageId
+  const [packages, setPackages] = useState(
+    Array.isArray(storedState?.packages) ? storedState.packages.filter(p => p && typeof p === 'object' && p.id != null) : []
+  );
+
   // Calculation history
   const HISTORY_KEY = 'ashley-calculator-history';
   const MAX_HISTORY = 10;
@@ -214,12 +245,16 @@ export default function AshleyDealCalculator() {
         delivery,
         items,
         includeProtection,
+        resultsView,
+        easyRead,
+        hintsOn,
+        packages,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       console.error('Failed to save state:', e);
     }
-  }, [salePercent, noTaxPromo, priceType, delivery, items, includeProtection]);
+  }, [salePercent, noTaxPromo, priceType, delivery, items, includeProtection, resultsView, easyRead, hintsOn, packages]);
 
   const taxRate = TAX_RATE / 100;
 
@@ -233,14 +268,34 @@ export default function AshleyDealCalculator() {
     }
   };
 
+  // --- Package groups ---
+  const addPackage = () => {
+    const pkgId = Date.now();
+    setPackages([...packages, { id: pkgId, name: '', price: '' }]);
+    // Start every package with one empty piece
+    setItems([...items, { ...createEmptyItem(pkgId + 1), packageId: pkgId }]);
+  };
+  const updatePackage = (id, field, value) => {
+    setPackages(packages.map(p => p.id === id ? { ...p, [field]: value } : p));
+  };
+  // Removing a package frees its pieces back to regular items (least destructive)
+  const removePackage = (id) => {
+    setItems(items.map(i => i.packageId === id ? { ...i, packageId: null, piecePinned: false } : i));
+    setPackages(packages.filter(p => p.id !== id));
+  };
+  const addPieceToPackage = (pkgId) => {
+    setItems([...items, { ...createEmptyItem(), packageId: pkgId }]);
+  };
+
   const updateItem = (id, field, value) => {
     setItems(items.map(item => {
       if (item.id !== id) return item;
       // Manually editing landing turns off auto-estimate so price changes won't overwrite it
       if (field === 'landingCost') {
         const next = { ...item, landingCost: value, landingAuto: false };
-        // Auto-fill price only when it's empty or still auto-managed — never clobber a manual/margin-set price
-        const priceIsAuto = item.priceAuto || String(item.price).trim() === '';
+        // Auto-fill price only when it's empty or still auto-managed — never clobber a manual/margin-set
+        // price. Package pieces skip this entirely: their price comes from the package split.
+        const priceIsAuto = item.packageId == null && (item.priceAuto || String(item.price).trim() === '');
         if (priceIsAuto) {
           const estimate = computeEstimatedPrice(value);
           next.price = estimate != null ? estimate.toFixed(2) : '';
@@ -291,6 +346,7 @@ export default function AshleyDealCalculator() {
       salePercent,
       includeProtection,
       items: items.map(i => ({ ...i })),
+      packages: packages.map(p => ({ ...p })),
     };
     setHistory(prev => {
       const next = [entry, ...prev].slice(0, MAX_HISTORY);
@@ -304,6 +360,36 @@ export default function AshleyDealCalculator() {
   const deliveryAmount = parseMoney(delivery);
   const deliveryTax = deliveryAmount * taxRate;
 
+  // --- Package price allocation (must stay ABOVE calculatedItems; reads only earlier consts) ---
+  // Per-unit invoice price for a hand-set (pinned) piece, using the same interpretation
+  // as the calculatedItems price branches below.
+  const pinnedPieceInvoice = (item) => {
+    const raw = parseMoney(item.price);
+    if (raw <= 0) return null;
+    if (item.marginSet) return raw; // margin buttons store invoice prices
+    const entered = priceType === 'sale' ? raw : raw * (1 - discount);
+    return noTaxPromo ? entered / (1 + taxRate) : entered;
+  };
+  const packageCalcs = packages.map(pkg => {
+    const rawPkg = parseMoney(pkg.price);
+    // Package price is the negotiated customer number: tax-included under the No-Tax promo,
+    // pre-tax otherwise. Never run through tag/sale discounting.
+    const pkgInvoice = noTaxPromo ? rawPkg / (1 + taxRate) : rawPkg;
+    const pieceItems = items.filter(i => i.packageId === pkg.id);
+    const pieces = pieceItems.map(i => ({
+      id: i.id,
+      qty: parseInt(i.qty) || 1,
+      landing: parseMoney(i.landingCost),
+      pinnedInvoice: (i.piecePinned || i.marginSet) ? pinnedPieceInvoice(i) : null,
+    }));
+    const { alloc, mismatch } = pkgInvoice > 0
+      ? allocatePackagePieces(pieces, pkgInvoice)
+      : { alloc: new Map(), mismatch: null };
+    return { pkg, pkgInvoice, alloc, mismatch };
+  });
+  const pieceInvoiceById = new Map();
+  packageCalcs.forEach(pc => pc.alloc.forEach((v, k) => pieceInvoiceById.set(k, v)));
+
   const calculatedItems = items.map(item => {
     const rawPrice = parseMoney(item.price);
     const qty = parseInt(item.qty) || 1;
@@ -312,8 +398,14 @@ export default function AshleyDealCalculator() {
     
     let salePrice, invoicePrice, quotePrice;
 
-    // FIX: Check if item has marginSet flag (was set via clicking margin target)
-    if (item.marginSet && rawPrice > 0) {
+    const isAllocatedPiece = item.packageId != null && pieceInvoiceById.has(item.id);
+
+    if (isAllocatedPiece) {
+      // Auto piece of a package: price comes from the package-price split
+      invoicePrice = pieceInvoiceById.get(item.id);
+      salePrice = invoicePrice;
+      quotePrice = invoicePrice * (1 + taxRate);
+    } else if (item.marginSet && rawPrice > 0) {
       // Price was set by clicking a margin target - it's already the correct invoice price
       invoicePrice = rawPrice;
       salePrice = invoicePrice;
@@ -375,10 +467,11 @@ export default function AshleyDealCalculator() {
       priceAt49,
       priceAt48,
       priceAt47,
-      regularUnit,
-      standardSaleUnit,
+      // Allocated pieces have no independent "regular price" anchor — keep them out of the savings ladder
+      regularUnit: isAllocatedPiece ? 0 : regularUnit,
+      standardSaleUnit: isAllocatedPiece ? 0 : standardSaleUnit,
       dealUnit,
-      hasDeal,
+      hasDeal: isAllocatedPiece ? false : hasDeal,
     };
   }).filter(item => item.lineTotal > 0 || item.landingCost > 0);
 
@@ -388,14 +481,19 @@ export default function AshleyDealCalculator() {
   const overallMargin = subtotal > 0 && totalLandingCost > 0 ? calculateMargin(subtotal, totalLandingCost) : null;
 
   // Savings-ladder totals (pre-tax merchandise). regularTotal anchors the "what it'd normally cost".
-  const regularTotal = calculatedItems.reduce((sum, item) => sum + (item.regularUnit * item.qty), 0);
-  const standardSaleTotal = calculatedItems.reduce((sum, item) => sum + (item.standardSaleUnit * item.qty), 0);
-  const dealTotal = subtotal; // actual pre-tax charge
+  // Items that carry a "regular price" anchor worth comparing (allocated package pieces don't)
+  const ladderItems = calculatedItems.filter(item => item.regularUnit > 0);
+  const regularTotal = ladderItems.reduce((sum, item) => sum + (item.regularUnit * item.qty), 0);
+  const standardSaleTotal = ladderItems.reduce((sum, item) => sum + (item.standardSaleUnit * item.qty), 0);
+  const dealTotal = ladderItems.reduce((sum, item) => sum + (item.dealUnit * item.qty), 0); // actual pre-tax charge for anchored items
   const savingsVsRegular = regularTotal - dealTotal;
   const savingsVsStandard = standardSaleTotal - dealTotal;
   const anyDeal = calculatedItems.some(item => item.hasDeal);
-  // Items that carry a price worth comparing in the savings table
-  const ladderItems = calculatedItems.filter(item => item.regularUnit > 0);
+  // True when every priced line has a regular-price anchor — the quote's Regular-vs-Your-Price
+  // comparison is only honest then (packages have no derivable regular price)
+  const ladderComplete = calculatedItems.filter(i => i.lineTotal > 0).every(i => i.regularUnit > 0.005);
+  // Landing total for loose items only — the order-level margin buttons don't touch package pieces
+  const looseLandingCost = calculatedItems.filter(i => i.packageId == null).reduce((sum, i) => sum + i.totalLandingCost, 0);
   // Show prices tax-included when the No-Tax promo is on, to match the rest of the customer view
   const taxAdj = (v) => noTaxPromo ? v * (1 + taxRate) : v;
 
@@ -416,11 +514,24 @@ export default function AshleyDealCalculator() {
 
   // Manager (Frank) decision summary — everything he needs to approve/reject, in textable form.
   const marginFloorOk = overallMargin === null || overallMargin >= 47;
+  const pieceSummaryLine = (item, i, indent = '') =>
+    `${indent}${itemLabel(item, i)} x${item.qty}: cost ${formatMoney(item.landingCost)} -> ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '--'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '--'}`;
   const managerSummary = subtotal > 0 ? [
     'DEAL FOR APPROVAL',
     ...calculatedItems
-      .filter(i => i.landingProvided)
-      .map((item, i) => `${item.name || `Item ${i + 1}`} x${item.qty}: cost ${formatMoney(item.landingCost)} -> ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '--'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '--'}`),
+      .filter(i => i.landingProvided && i.packageId == null)
+      .map((item, i) => pieceSummaryLine(item, i)),
+    ...packages.flatMap(pkg => {
+      const pcs = calculatedItems.filter(ci => ci.packageId === pkg.id);
+      if (!pcs.length) return [];
+      const tot = pcs.reduce((s, ci) => s + ci.lineTotal, 0);
+      const land = pcs.reduce((s, ci) => s + ci.totalLandingCost, 0);
+      const m = tot > 0 && land > 0 ? calculateMargin(tot, land).toFixed(0) + '%' : '--';
+      return [
+        `PACKAGE ${pkg.name || 'Package'}: ${formatMoney(tot)} = ${m}`,
+        ...pcs.filter(ci => ci.landingProvided).map((ci, j) => pieceSummaryLine(ci, j, '  - ')),
+      ];
+    }),
     '',
     `Customer pays: ${formatMoney(customerTotal)}`,
     `Merch ${formatMoney(subtotal)} | Landing ${formatMoney(totalLandingCost)} | Profit ${totalProfit > 0 ? formatMoney(totalProfit) : '--'}`,
@@ -432,11 +543,12 @@ export default function AshleyDealCalculator() {
 
   // Share the customer quote via the phone's native share sheet, falling back to print.
   const handleShareQuote = async () => {
+    const showRegular = ladderComplete && regularTotal > 0.005 && quoteSavings > 0.005;
     const text = [
       quoteTitle,
-      `Regular price: ${formatMoney(regularGrandTotal)}`,
+      ...(showRegular ? [`Regular price: ${formatMoney(regularGrandTotal)}`] : []),
       `Your price${noTaxPromo ? ' (NO TAX!)' : ''}: ${formatMoney(customerTotal)}`,
-      `You save: ${formatMoney(quoteSavings)}`,
+      ...(showRegular ? [`You save: ${formatMoney(quoteSavings)}`] : []),
     ].join('\n');
     if (typeof navigator !== 'undefined' && navigator.share) {
       try {
@@ -513,7 +625,9 @@ export default function AshleyDealCalculator() {
   const updateItemPrice = (id, value) => {
     setItems(items.map(item => {
       if (item.id !== id) return item;
-      const next = { ...item, price: value, priceAuto: false, marginSet: false, selectedMargin: null, originalPrice: undefined };
+      // Typing a price on a package piece pins it (clearing the field returns it to auto-split)
+      const piecePinned = item.packageId != null ? String(value).trim() !== '' : item.piecePinned;
+      const next = { ...item, price: value, priceAuto: false, piecePinned, marginSet: false, selectedMargin: null, originalPrice: undefined };
       // Auto-fill landing only when it's empty or still auto-managed — never clobber a manual entry
       const landingIsAuto = item.landingAuto || String(item.landingCost).trim() === '';
       if (landingIsAuto) {
@@ -529,14 +643,15 @@ export default function AshleyDealCalculator() {
 
   // Set ALL items to a target margin at once.
   // Tapping the same margin again restores every item's original price (toggle off).
+  // Package pieces are skipped: the package price is a quoted customer number.
   const setAllItemsToMargin = (targetMargin) => {
-    const itemsWithLanding = items.filter(i => parseMoney(i.landingCost) > 0);
+    const itemsWithLanding = items.filter(i => parseMoney(i.landingCost) > 0 && i.packageId == null);
     const alreadyAtThisMargin = itemsWithLanding.length > 0 &&
       itemsWithLanding.every(i => i.selectedMargin === targetMargin);
 
     setItems(items.map(item => {
       const landingCost = parseMoney(item.landingCost);
-      if (landingCost <= 0) return item;
+      if (landingCost <= 0 || item.packageId != null) return item;
 
       // Toggle off: restore the original (standard) price
       if (alreadyAtThisMargin) {
@@ -607,6 +722,7 @@ export default function AshleyDealCalculator() {
     setPriceType('sale');
     setDelivery(String(DEFAULT_DELIVERY));
     setItems([createEmptyItem(1)]);
+    setPackages([]);
     setErrors({});
     setExpandedItemPresets({});
     setShowCustomInput({});
@@ -618,6 +734,7 @@ export default function AshleyDealCalculator() {
 
   const restoreFromHistory = (entry) => {
     setItems(entry.items.map((item, index) => normalizeItem(item, Date.now() + index)));
+    setPackages(Array.isArray(entry.packages) ? entry.packages.map(p => ({ ...p })) : []);
     setDelivery(String(entry.delivery));
     setNoTaxPromo(entry.noTaxPromo);
     setPriceType(entry.priceType ?? 'sale');
@@ -649,6 +766,31 @@ export default function AshleyDealCalculator() {
     if (margin >= 47) return 'OK';
     return 'Too Low';
   };
+
+  // Traffic-light verdict for the Simple results view (same thresholds as getMarginColor/Label)
+  const getVerdict = (margin) => margin >= 50
+    ? { icon: '✓', label: 'GOOD DEAL', color: colors.success.main, bg: colors.success.light }
+    : margin >= 47
+    ? { icon: '⚠', label: 'OK — YOUR CALL', color: colors.warning.main, bg: colors.warning.light }
+    : { icon: '✗', label: 'TOO LOW', color: colors.error.main, bg: colors.error.light };
+
+  // Counter guidance when the deal is under the 47% floor — one source of truth for both result views
+  const counterAlert = (overallMargin !== null && overallMargin < 47 && totalLandingCost > 0) ? (
+    <div style={{ background: colors.error.light, border: `1px solid ${colors.error.main}50`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 700, color: colors.error.main, marginBottom: '6px' }}>Counter needed — below 47% floor</div>
+      <div style={{ fontSize: '14px', color: colors.text.primary }}>
+        Min invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 47))}</strong> for 47%
+      </div>
+      <div style={{ fontSize: '14px', color: colors.text.primary, marginTop: '2px' }}>
+        Target invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 50))}</strong> for 50%
+      </div>
+      {noTaxPromo && (
+        <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '4px' }}>
+          Customer quote: <strong>{formatMoney(priceForMargin(totalLandingCost, 47) * (1 + taxRate))}</strong> min • <strong>{formatMoney(priceForMargin(totalLandingCost, 50) * (1 + taxRate))}</strong> target
+        </div>
+      )}
+    </div>
+  ) : null;
 
   // Copy helper with feedback
   const copyToClipboard = (text) => {
@@ -717,6 +859,9 @@ export default function AshleyDealCalculator() {
       </span>
     );
   };
+
+  // Small helper caption shown only when Hints mode is on — plain text, never blocks taps
+  const Hint = ({ children }) => hintsOn ? <div className="hint">💡 {children}</div> : null;
 
   const CopyBlock = ({ title, content }) => {
     const [copied, setCopied] = useState(false);
@@ -896,8 +1041,240 @@ export default function AshleyDealCalculator() {
     clearItems,
   }), [setItemFields, estimateLandingByIndex, setAllItemsToMargin, clearItems]);
 
+  // Item card renderer, shared by loose items and package pieces. Deliberately a plain
+  // function (NOT an inline <Component/>): an inline component type is recreated every
+  // render, which remounts the inputs and drops keyboard focus on each keystroke.
+  const renderItemCard = (item) => (
+            <div key={item.id} className="item-card-compact" data-item>
+              {/* Row 1: Type pills + Price + Qty */}
+              <div className="item-row-top">
+                {showCustomInput[item.id] ? (
+                  <input
+                    type="text"
+                    className="input-compact"
+                    placeholder="Item name..."
+                    value={item.name}
+                    onChange={(e) => updateItem(item.id, 'name', e.target.value)}
+                    autoFocus
+                    style={{ flex: 1 }}
+                  />
+                ) : expandedItemPresets[item.id] ? (
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: expandedMore[item.id] ? 6 : 0 }}>
+                      {TOP_ITEM_PRESETS.map(p => (
+                        <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
+                      ))}
+                      <button className={`pill-compact${expandedMore[item.id] ? ' selected' : ''}`} onClick={() => setExpandedMore({ ...expandedMore, [item.id]: !expandedMore[item.id] })} style={{ fontSize: 11 }}>{expandedMore[item.id] ? 'Less' : 'More'}</button>
+                      <button className="pill-compact" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: true }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>Custom</button>
+                    </div>
+                    {expandedMore[item.id] && (
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {MORE_ITEM_PRESETS.map(p => (
+                          <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedMore({ ...expandedMore, [item.id]: false }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    className="pill-compact"
+                    onClick={() => setExpandedItemPresets({ ...expandedItemPresets, [item.id]: true })}
+                    style={{ fontSize: 12, flex: 1, justifyContent: 'flex-start', gap: 6 }}
+                  >
+                    {item.name || 'Select type...'}
+                  </button>
+                )}
+                <div className={`money-wrap${item.priceAuto && String(item.price).trim() !== '' ? ' has-auto' : ''}`} style={{ width: 110, flex: 'none' }}>
+                  <input
+                    type="text"
+                    className={`input-compact ${errors.price ? 'input-error' : ''}`}
+                    placeholder={
+                      item.packageId != null && pieceInvoiceById.has(item.id) && pieceInvoiceById.get(item.id) > 0
+                        ? `auto ${formatMoney(noTaxPromo ? pieceInvoiceById.get(item.id) * (1 + taxRate) : pieceInvoiceById.get(item.id))}`
+                        : item.packageId != null
+                        ? 'auto'
+                        : (noTaxPromo ? 'Price+tax' : 'Price')
+                    }
+                    value={item.price}
+                    onChange={(e) => updateItemPrice(item.id, e.target.value)}
+                    inputMode="decimal"
+                  />
+                  {item.priceAuto && String(item.price).trim() !== '' && (
+                    <span className="auto-tag" title="Auto-estimated from landing — edit to override">auto</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 2 }}>Qty</span>
+                  <input
+                    type="number"
+                    className="input-qty-compact"
+                    value={item.qty}
+                    onChange={(e) => updateItem(item.id, 'qty', e.target.value)}
+                    min="1"
+                    placeholder="1"
+                    title="Quantity"
+                  />
+                </div>
+              </div>
+              {/* Row 2: Landing + Estimate + Remove + Back */}
+              <div className="item-row-bottom">
+                <div className={`money-wrap${item.landingAuto && String(item.landingCost).trim() !== '' ? ' has-auto' : ''}`}>
+                  <input
+                    type="text"
+                    className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
+                    placeholder="Landing"
+                    value={item.landingCost}
+                    onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
+                    inputMode="decimal"
+                  />
+                  {item.landingAuto && String(item.landingCost).trim() !== '' && (
+                    <span className="auto-tag" title="Auto-estimated from price — edit to override">auto</span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  className="input-compact"
+                  style={{ width: 96, flex: 'none' }}
+                  placeholder="Item #"
+                  value={item.sku}
+                  onChange={(e) => updateItem(item.id, 'sku', e.target.value)}
+                  aria-label="Item number (SKU)"
+                />
+                <button className="item-estimate-btn" onClick={() => estimateLandingCost(item.id)} title="Estimate landing cost (price ÷ 3.3)">Est.</button>
+                {items.length > 1 && (
+                  <button className="item-remove-btn" onClick={() => removeItem(item.id)} title="Remove item">×</button>
+                )}
+                {showCustomInput[item.id] && (
+                  <button className="item-remove-btn" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: false }); if (!item.name) updateItem(item.id, 'name', ''); }} title="Back to presets" style={{ fontSize: 12 }}>↩</button>
+                )}
+              </div>
+              {items[0] && items[0].id === item.id && (
+                <Hint>Landing = what the store pays. Est. guesses it from retail ÷ 3.3 — type over it if you know the real number</Hint>
+              )}
+              {estimateFeedback[item.id] && (
+                <div
+                  className="estimate-feedback"
+                  style={{ color: estimateFeedback[item.id].ok ? 'var(--success)' : 'var(--warning)' }}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {estimateFeedback[item.id].ok ? '✓ ' : '⚠ '}{estimateFeedback[item.id].text}
+                </div>
+              )}
+            </div>
+  );
+
+  // Per-item block in the results "Margin by Item" section — plain function for the same
+  // focus-retention reason as renderItemCard (it contains the custom-margin input).
+  const renderMarginItem = (item, i) => (
+                      <div key={item.id} className="margin-item">
+                        <div className="margin-item-header">
+                          <span className="margin-item-name">{itemLabel(item, i)}</span>
+                          {item.margin !== null && (
+                            <span
+                              className="margin-badge"
+                              style={{
+                                background: item.margin >= 50 ? colors.success.light : item.margin >= 47 ? colors.warning.light : colors.error.light,
+                                color: getMarginColor(item.margin),
+                                border: `1px solid ${getMarginColor(item.margin)}50`
+                              }}
+                            >
+                              {item.margin.toFixed(1)}% margin
+                            </span>
+                          )}
+                        </div>
+                        {item.invoicePrice > 0 ? (
+                          <div style={{ fontSize: '14px', color: colors.text.secondary, lineHeight: 1.6 }}>
+                            {noTaxPromo ? (
+                              <>
+                                Quote: {formatMoney(item.quotePrice)} • Invoice: {formatMoney(item.invoicePrice)}
+                                {item.qty > 1 && <span style={{ color: colors.text.secondary }}> (per unit × {item.qty})</span>}
+                              </>
+                            ) : (
+                              <>
+                                Sale: {formatMoney(item.invoicePrice)} (+ tax at register)
+                                {item.qty > 1 && <span style={{ color: colors.text.secondary }}> per unit × {item.qty}</span>}
+                              </>
+                            )}
+                            <br/>
+                            Landing: {formatMoney(item.landingCost)}/unit
+                            {item.qty > 1 && <span> • Line total: {formatMoney(item.lineTotal)}</span>}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '14px', color: colors.text.secondary, lineHeight: 1.6 }}>
+                            Landing: {formatMoney(item.landingCost)} • <em>Tap a margin target below</em>
+                          </div>
+                        )}
+                        <div style={{ fontSize: '13px', color: colors.primary[400], marginTop: '8px', marginBottom: '4px', fontWeight: 600 }}>
+                          {item.selectedMargin
+                            ? 'Tap again to restore original price:'
+                            : (noTaxPromo ? 'Tap to set price (shows quote w/ tax):' : 'Tap to set sale price:')}
+                        </div>
+                        <div className="margin-prices">
+                          <div
+                            className={`margin-price-box ${item.selectedMargin === 50 ? 'current' : ''}`}
+                            onClick={() => setItemToMargin(item.id, 50)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <div className="margin-price-label">50%</div>
+                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt50 * (1 + taxRate) : item.priceAt50)}</div>
+                          </div>
+                          <div
+                            className={`margin-price-box ${item.selectedMargin === 49 ? 'current' : ''}`}
+                            onClick={() => setItemToMargin(item.id, 49)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <div className="margin-price-label">49%</div>
+                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt49 * (1 + taxRate) : item.priceAt49)}</div>
+                          </div>
+                          <div
+                            className={`margin-price-box ${item.selectedMargin === 48 ? 'current' : ''}`}
+                            onClick={() => setItemToMargin(item.id, 48)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <div className="margin-price-label">48%</div>
+                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt48 * (1 + taxRate) : item.priceAt48)}</div>
+                          </div>
+                          <div
+                            className={`margin-price-box ${item.selectedMargin === 47 ? 'current' : ''}`}
+                            onClick={() => setItemToMargin(item.id, 47)}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <div className="margin-price-label">47%</div>
+                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt47 * (1 + taxRate) : item.priceAt47)}</div>
+                          </div>
+                        </div>
+                        <div className="custom-margin-row">
+                          <span className="custom-margin-label">Custom</span>
+                          <div className="custom-margin-field">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              className="custom-margin-input"
+                              placeholder="%"
+                              value={itemCustomMargin[item.id] ?? ''}
+                              onChange={(e) => setItemCustomMargin(prev => ({ ...prev, [item.id]: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === 'Enter') applyItemCustomMargin(item.id); }}
+                              aria-label="Custom margin percent for this item"
+                            />
+                          </div>
+                          {clampMargin(itemCustomMargin[item.id]) != null && item.landingCost > 0 && (
+                            <span className="custom-margin-preview">
+                              = {formatMoney(noTaxPromo ? priceForMargin(item.landingCost, clampMargin(itemCustomMargin[item.id])) * (1 + taxRate) : priceForMargin(item.landingCost, clampMargin(itemCustomMargin[item.id])))}
+                            </span>
+                          )}
+                          <button className="custom-margin-set" onClick={() => applyItemCustomMargin(item.id)} disabled={clampMargin(itemCustomMargin[item.id]) == null}>Set</button>
+                        </div>
+                        {noTaxPromo && item.margin !== null && (
+                          <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '8px', background: colors.warning.light, border: `1px solid ${colors.warning.main}40`, padding: '8px', borderRadius: '6px' }}>
+                            📝 <strong>Invoice:</strong> Write {formatMoney(item.invoicePrice)} for {item.margin.toFixed(0)}% margin → customer pays {formatMoney(item.quotePrice)}
+                          </div>
+                        )}
+                      </div>
+  );
+
   return (
-    <div className="app">
+    <div className={`app${easyRead ? ' easy-read' : ''}`}>
       <style>{`
         * { box-sizing: border-box; }
         :root {
@@ -2484,6 +2861,61 @@ export default function AshleyDealCalculator() {
         }
         .quote-title-input:focus { border-bottom: 1px dashed #b08d2e; }
         .quote-tagline { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.18em; margin-top: 6px; }
+        .quote-items { margin-bottom: 16px; }
+        .quote-item-line { display: flex; justify-content: space-between; gap: 12px; padding: 6px 2px; font-size: 13px; color: #333; border-bottom: 1px dashed #d8d3c8; }
+
+        /* Results Simple|Detailed view toggle */
+        .results-view-toggle {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+          background: var(--surface-2); border: 1px solid var(--line);
+          border-radius: var(--radius-sm); padding: 4px; margin-bottom: 14px;
+        }
+        .results-view-btn {
+          min-height: var(--tap); border: none; border-radius: 6px;
+          background: transparent; color: var(--muted);
+          font-size: var(--text-sm); font-weight: 700; cursor: pointer;
+        }
+        .results-view-btn.active { background: var(--crimson); color: #fff; }
+        .verdict-hero { text-align: center; padding: 18px 14px; border-radius: 12px; }
+
+        /* Hints mode captions */
+        .hint { font-size: var(--text-xs); color: var(--muted); font-style: italic; line-height: 1.4; margin: 4px 2px 0; }
+
+        /* Package groups */
+        .package-card {
+          border: 1px solid var(--line);
+          border-left: 3px solid var(--crimson);
+          border-radius: var(--radius-md);
+          background: rgba(255,255,255,0.03);
+          padding: 8px;
+          margin: 10px 0;
+        }
+        .package-head { display: flex; align-items: center; gap: 6px; }
+        .package-icon { flex: none; font-size: 16px; }
+        .package-meta { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: var(--text-xs); color: var(--muted); font-weight: 600; }
+        .package-mismatch { margin-top: 6px; font-size: var(--text-xs); color: var(--warning); font-weight: 600; }
+
+        /* Easy Read (Big Text) mode — larger type, bigger targets, brighter secondary text.
+           zoom scales the many hardcoded px sizes (incl. inline styles) that CSS vars can't reach;
+           applied to inner containers so .app's 100dvh scroll stays viewport-true. */
+        .easy-read { --tap: 52px; --muted: #C3C8D4; --text-xs: 12px; --text-sm: 14px; --text-md: 17px; }
+        @supports (zoom: 1.1) {
+          .easy-read .container,
+          .easy-read .result-card,
+          .easy-read .help-modal,
+          .easy-read .invoice-sheet,
+          .easy-read .calc-sheet,
+          .easy-read .sticky-bottom { zoom: 1.15; }
+        }
+        .easy-read .setting-chip { min-height: var(--tap); font-size: 14px; }
+        .easy-read .pill-compact { min-height: 40px; font-size: 14px; }
+        .easy-read .input-compact, .easy-read .input-qty-compact { min-height: var(--tap); font-size: 17px; }
+        .easy-read .item-estimate-btn, .easy-read .item-remove-btn { min-width: var(--tap); min-height: var(--tap); white-space: nowrap; }
+        .easy-read .sheet-close, .easy-read .help-close { min-height: var(--tap); }
+        .easy-read .breakdown-label, .easy-read .breakdown-value { font-size: 16px; }
+        /* 4-across preset row overflows at 1.15 zoom on narrow phones — wrap to 2x2 */
+        .easy-read .margin-prices { flex-wrap: wrap; }
+        .easy-read .margin-price-box { flex: 1 1 40%; }
         /* Two comparison cards */
         .quote-cards { display: flex; gap: 14px; }
         .quote-card { flex: 1; border: 1px solid #e0ddd6; border-radius: 10px; padding: 16px; background: #fcfbf9; min-width: 0; }
@@ -2604,8 +3036,23 @@ export default function AshleyDealCalculator() {
           >
             Protection {includeProtection ? 'ON' : 'OFF'}
           </button>
-          <button className="setting-chip gear" onClick={() => setShowSettingsModal(true)}>⚙</button>
+          <button
+            className={`setting-chip ${easyRead ? 'active' : ''}`}
+            aria-pressed={easyRead}
+            onClick={() => setEasyRead(!easyRead)}
+          >
+            Aa Big Text
+          </button>
+          <button
+            className={`setting-chip ${hintsOn ? 'active' : ''}`}
+            aria-pressed={hintsOn}
+            onClick={() => setHintsOn(!hintsOn)}
+          >
+            💡 Hints
+          </button>
+          <button className="setting-chip gear" onClick={() => setShowSettingsModal(true)}>{easyRead ? '⚙ Settings' : '⚙'}</button>
         </div>
+        <Hint>These chips set the deal: tap Sale % to cycle discounts, No-Tax for the tax-included promo, Del for delivery</Hint>
 
         {/* Settings Modal */}
         {showSettingsModal && (
@@ -2670,6 +3117,22 @@ export default function AshleyDealCalculator() {
                     </div>
                   )}
                 </div>
+                <div className="setting-group">
+                  <label>Big Text (Easy Read)</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className={`toggle-compact ${easyRead ? 'on' : ''}`} role="switch" aria-checked={easyRead} aria-label="Big Text (Easy Read)" tabIndex={0} onClick={() => setEasyRead(!easyRead)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEasyRead(!easyRead); }}} />
+                    <span style={{ fontSize: 11, color: easyRead ? colors.success.main : colors.text.secondary }}>{easyRead ? 'ON' : 'OFF'}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>Larger text, bigger buttons, brighter labels</div>
+                </div>
+                <div className="setting-group">
+                  <label>Hints</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className={`toggle-compact ${hintsOn ? 'on' : ''}`} role="switch" aria-checked={hintsOn} aria-label="Hints" tabIndex={0} onClick={() => setHintsOn(!hintsOn)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHintsOn(!hintsOn); }}} />
+                    <span style={{ fontSize: 11, color: hintsOn ? colors.success.main : colors.text.secondary }}>{hintsOn ? 'ON' : 'OFF'}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>Show 💡 tips explaining what each control does</div>
+                </div>
               </div>
               <button className="help-close" onClick={() => setShowSettingsModal(false)}>Done</button>
             </div>
@@ -2681,110 +3144,74 @@ export default function AshleyDealCalculator() {
         <div className="card" style={{ padding: 8 }}>
           {errors.price && <div className="error-text" style={{ paddingLeft: 4 }}>{errors.price}</div>}
           {errors.landingCost && <div className="error-text" style={{ paddingLeft: 4 }}>{errors.landingCost}</div>}
+          <Hint>Enter the customer's price and the landing cost — either one can auto-fill the other</Hint>
 
-          {items.map((item) => (
-            <div key={item.id} className="item-card-compact" data-item>
-              {/* Row 1: Type pills + Price + Qty */}
-              <div className="item-row-top">
-                {showCustomInput[item.id] ? (
+          {items.filter(i => i.packageId == null).map(renderItemCard)}
+
+          {packages.map(pkg => {
+            const pc = packageCalcs.find(c => c.pkg.id === pkg.id);
+            const pieces = items.filter(i => i.packageId === pkg.id);
+            const calcPieces = calculatedItems.filter(ci => ci.packageId === pkg.id);
+            const pkgInvoiceTotal = calcPieces.reduce((s, ci) => s + ci.lineTotal, 0);
+            const pkgLanding = calcPieces.reduce((s, ci) => s + ci.totalLandingCost, 0);
+            const pkgMargin = pkgInvoiceTotal > 0 && pkgLanding > 0 ? calculateMargin(pkgInvoiceTotal, pkgLanding) : null;
+            const pieceCount = pieces.reduce((s, i) => s + (parseInt(i.qty) || 1), 0);
+            return (
+              <div key={pkg.id} className="package-card">
+                <div className="package-head">
+                  <span className="package-icon">📦</span>
                   <input
                     type="text"
                     className="input-compact"
-                    placeholder="Item name..."
-                    value={item.name}
-                    onChange={(e) => updateItem(item.id, 'name', e.target.value)}
-                    autoFocus
-                    style={{ flex: 1 }}
+                    placeholder="Package name"
+                    value={pkg.name}
+                    onChange={(e) => updatePackage(pkg.id, 'name', e.target.value)}
+                    style={{ flex: 1, minWidth: 0 }}
                   />
-                ) : expandedItemPresets[item.id] ? (
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: expandedMore[item.id] ? 6 : 0 }}>
-                      {TOP_ITEM_PRESETS.map(p => (
-                        <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
-                      ))}
-                      <button className={`pill-compact${expandedMore[item.id] ? ' selected' : ''}`} onClick={() => setExpandedMore({ ...expandedMore, [item.id]: !expandedMore[item.id] })} style={{ fontSize: 11 }}>{expandedMore[item.id] ? 'Less' : 'More'}</button>
-                      <button className="pill-compact" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: true }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>Custom</button>
-                    </div>
-                    {expandedMore[item.id] && (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                        {MORE_ITEM_PRESETS.map(p => (
-                          <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedMore({ ...expandedMore, [item.id]: false }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
-                        ))}
-                      </div>
-                    )}
+                  <div className="money-wrap" style={{ width: 110, flex: 'none' }}>
+                    <input
+                      type="text"
+                      className="input-compact"
+                      placeholder={noTaxPromo ? 'Pkg $+tax' : 'Pkg price'}
+                      value={pkg.price}
+                      onChange={(e) => updatePackage(pkg.id, 'price', e.target.value)}
+                      inputMode="decimal"
+                      aria-label="Package price"
+                    />
                   </div>
-                ) : (
-                  <button
-                    className="pill-compact"
-                    onClick={() => setExpandedItemPresets({ ...expandedItemPresets, [item.id]: true })}
-                    style={{ fontSize: 12, flex: 1, justifyContent: 'flex-start', gap: 6 }}
-                  >
-                    {item.name || 'Select type...'}
-                  </button>
-                )}
-                <div className={`money-wrap${item.priceAuto && String(item.price).trim() !== '' ? ' has-auto' : ''}`} style={{ width: 110, flex: 'none' }}>
-                  <input
-                    type="text"
-                    className={`input-compact ${errors.price ? 'input-error' : ''}`}
-                    placeholder={noTaxPromo ? 'Price+tax' : 'Price'}
-                    value={item.price}
-                    onChange={(e) => updateItemPrice(item.id, e.target.value)}
-                    inputMode="decimal"
-                  />
-                  {item.priceAuto && String(item.price).trim() !== '' && (
-                    <span className="auto-tag" title="Auto-estimated from landing — edit to override">auto</span>
+                  <button className="item-remove-btn" onClick={() => removePackage(pkg.id)} title="Remove package (pieces become regular items)">×</button>
+                </div>
+                <div className="package-meta">
+                  <span>{pieceCount} pc</span>
+                  {pkgMargin !== null && (
+                    <span
+                      className="margin-badge"
+                      style={{
+                        background: pkgMargin >= 50 ? colors.success.light : pkgMargin >= 47 ? colors.warning.light : colors.error.light,
+                        color: getMarginColor(pkgMargin),
+                        border: `1px solid ${getMarginColor(pkgMargin)}50`,
+                      }}
+                    >
+                      {pkgMargin.toFixed(1)}% margin
+                    </span>
                   )}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 2 }}>Qty</span>
-                  <input
-                    type="number"
-                    className="input-qty-compact"
-                    value={item.qty}
-                    onChange={(e) => updateItem(item.id, 'qty', e.target.value)}
-                    min="1"
-                    placeholder="1"
-                    title="Quantity"
-                  />
-                </div>
-              </div>
-              {/* Row 2: Landing + Estimate + Remove + Back */}
-              <div className="item-row-bottom">
-                <div className={`money-wrap${item.landingAuto && String(item.landingCost).trim() !== '' ? ' has-auto' : ''}`}>
-                  <input
-                    type="text"
-                    className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
-                    placeholder="Landing"
-                    value={item.landingCost}
-                    onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
-                    inputMode="decimal"
-                  />
-                  {item.landingAuto && String(item.landingCost).trim() !== '' && (
-                    <span className="auto-tag" title="Auto-estimated from price — edit to override">auto</span>
-                  )}
-                </div>
-                <button className="item-estimate-btn" onClick={() => estimateLandingCost(item.id)} title="Estimate landing cost (price ÷ 3.3)">Est.</button>
-                {items.length > 1 && (
-                  <button className="item-remove-btn" onClick={() => removeItem(item.id)} title="Remove item">×</button>
+                {pc?.mismatch != null && (
+                  <div className="package-mismatch">
+                    ⚠ Pieces total {formatMoney(noTaxPromo ? pkgInvoiceTotal * (1 + taxRate) : pkgInvoiceTotal)} — package price says {formatMoney(parseMoney(pkg.price))}
+                  </div>
                 )}
-                {showCustomInput[item.id] && (
-                  <button className="item-remove-btn" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: false }); if (!item.name) updateItem(item.id, 'name', ''); }} title="Back to presets" style={{ fontSize: 12 }}>↩</button>
-                )}
+                <Hint>One price for the whole package — pieces split it by cost automatically. Type a piece's price to set it yourself</Hint>
+                {pieces.map(renderItemCard)}
+                <button className="add-item-btn" style={{ marginTop: 4 }} onClick={() => addPieceToPackage(pkg.id)}>+ Add Piece</button>
               </div>
-              {estimateFeedback[item.id] && (
-                <div
-                  className="estimate-feedback"
-                  style={{ color: estimateFeedback[item.id].ok ? 'var(--success)' : 'var(--warning)' }}
-                  role="status"
-                  aria-live="polite"
-                >
-                  {estimateFeedback[item.id].ok ? '✓ ' : '⚠ '}{estimateFeedback[item.id].text}
-                </div>
-              )}
-            </div>
-          ))}
-          
-          <button className="add-item-btn" onClick={addItem}>+ Add Item</button>
+            );
+          })}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <button className="add-item-btn" onClick={addItem}>+ Add Item</button>
+            <button className="add-item-btn" onClick={addPackage}>📦 Add Package</button>
+          </div>
         </div>
 
       </div>
@@ -2825,6 +3252,68 @@ export default function AshleyDealCalculator() {
             </div>
             <div className="sheet-content">
 
+                {/* Simple | Detailed view toggle */}
+                <div className="results-view-toggle">
+                  <button
+                    className={`results-view-btn${resultsView === 'simple' ? ' active' : ''}`}
+                    onClick={() => setResultsView('simple')}
+                    aria-pressed={resultsView === 'simple'}
+                  >
+                    Simple
+                  </button>
+                  <button
+                    className={`results-view-btn${resultsView === 'detailed' ? ' active' : ''}`}
+                    onClick={() => setResultsView('detailed')}
+                    aria-pressed={resultsView === 'detailed'}
+                  >
+                    Detailed
+                  </button>
+                </div>
+                <Hint>Simple shows the verdict — Detailed shows every number and the pricing tools</Hint>
+
+                {resultsView === 'simple' && (
+                  <>
+                    {overallMargin !== null ? (
+                      <div className="big-total verdict-hero" style={{ background: getVerdict(overallMargin).bg, border: `1px solid ${getVerdict(overallMargin).color}50` }}>
+                        <div style={{ fontSize: '28px', lineHeight: 1 }}>{getVerdict(overallMargin).icon}</div>
+                        <div style={{ fontSize: '20px', fontWeight: 800, color: getVerdict(overallMargin).color, letterSpacing: '0.03em', marginTop: '6px' }}>
+                          {getVerdict(overallMargin).label}
+                        </div>
+                        <div className="big-total-amount" style={{ marginTop: '4px' }}>{overallMargin.toFixed(1)}%</div>
+                        <div className="big-total-sub" style={{ marginTop: '2px' }}>margin</div>
+                        {subtotal > 0 && (
+                          <div style={{ marginTop: '12px', fontSize: '16px', color: colors.text.primary }}>
+                            Customer pays <strong style={{ fontSize: '19px' }}>{formatMoney(customerTotal)}</strong>
+                          </div>
+                        )}
+                        {subtotal > 0 && regularTotal > 0 && savingsVsRegular > 0.005 && (
+                          <div style={{ marginTop: '4px', fontSize: '14px', color: colors.success.main, fontWeight: 600 }}>
+                            They save {formatMoney(taxAdj(savingsVsRegular))} off regular
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="big-total">
+                        <div className="big-total-label">Margin Check</div>
+                        <div className="big-total-amount" style={{ fontSize: '20px', color: 'rgba(255,255,255,0.6)' }}>Enter landing cost</div>
+                        <div className="big-total-sub">Add landing cost to see margin</div>
+                      </div>
+                    )}
+                    {counterAlert}
+                    {counterAlert && subtotal > 0 && (
+                      <a
+                        className="result-btn secondary"
+                        style={{ width: '100%', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+                        href={`sms:?&body=${encodeURIComponent(managerSummary)}`}
+                      >
+                        💬 Text Frank to approve
+                      </a>
+                    )}
+                  </>
+                )}
+
+                {resultsView === 'detailed' && (
+                  <>
                 {overallMargin !== null ? (
                   <div className="big-total">
                     <div className="big-total-label">Overall Margin</div>
@@ -2847,19 +3336,20 @@ export default function AshleyDealCalculator() {
                 )}
 
                 {/* Set entire order to a margin target */}
-                {totalLandingCost > 0 && (
+                {looseLandingCost > 0 && (
                   <div style={{ background: colors.primary[50], border: `1px solid ${colors.primary[200]}`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
-                    <div style={{ fontSize: '14px', fontWeight: 700, color: colors.primary[400], marginBottom: '8px' }}>Set Entire Order to Margin</div>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: colors.primary[400], marginBottom: '8px' }}>Set Entire Order to Margin{packages.length > 0 ? ' (packages keep their price)' : ''}</div>
+                    <Hint>Tap a % to reprice the whole order to hit that margin — tap it again to undo</Hint>
                     <div className="margin-prices">
                       {MARGIN_PRESETS.map(target => (
                         <div
                           key={target}
-                          className={`margin-price-box ${items.every(i => !parseMoney(i.landingCost) || i.selectedMargin === target) && items.some(i => i.selectedMargin === target) ? 'current' : ''}`}
+                          className={`margin-price-box ${items.every(i => i.packageId != null || !parseMoney(i.landingCost) || i.selectedMargin === target) && items.some(i => i.packageId == null && i.selectedMargin === target) ? 'current' : ''}`}
                           onClick={() => setAllItemsToMargin(target)}
                           style={{ cursor: 'pointer' }}
                         >
                           <div className="margin-price-label">{target}%</div>
-                          <div className="margin-price-value">{formatMoney(noTaxPromo ? priceForMargin(totalLandingCost, target) * (1 + taxRate) : priceForMargin(totalLandingCost, target))}</div>
+                          <div className="margin-price-value">{formatMoney(noTaxPromo ? priceForMargin(looseLandingCost, target) * (1 + taxRate) : priceForMargin(looseLandingCost, target))}</div>
                         </div>
                       ))}
                     </div>
@@ -2879,7 +3369,7 @@ export default function AshleyDealCalculator() {
                       </div>
                       {clampMargin(orderCustomMargin) != null && (
                         <span className="custom-margin-preview">
-                          = {formatMoney(noTaxPromo ? priceForMargin(totalLandingCost, clampMargin(orderCustomMargin)) * (1 + taxRate) : priceForMargin(totalLandingCost, clampMargin(orderCustomMargin)))}
+                          = {formatMoney(noTaxPromo ? priceForMargin(looseLandingCost, clampMargin(orderCustomMargin)) * (1 + taxRate) : priceForMargin(looseLandingCost, clampMargin(orderCustomMargin)))}
                         </span>
                       )}
                       <button className="custom-margin-set" onClick={applyOrderCustomMargin} disabled={clampMargin(orderCustomMargin) == null}>Set</button>
@@ -2892,135 +3382,44 @@ export default function AshleyDealCalculator() {
                   </div>
                 )}
 
-                {overallMargin !== null && overallMargin < 47 && totalLandingCost > 0 && (
-                  <div style={{ background: colors.error.light, border: `1px solid ${colors.error.main}50`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 700, color: colors.error.main, marginBottom: '6px' }}>Counter needed — below 47% floor</div>
-                    <div style={{ fontSize: '14px', color: colors.text.primary }}>
-                      Min invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 47))}</strong> for 47%
-                    </div>
-                    <div style={{ fontSize: '14px', color: colors.text.primary, marginTop: '2px' }}>
-                      Target invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 50))}</strong> for 50%
-                    </div>
-                    {noTaxPromo && (
-                      <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '4px' }}>
-                        Customer quote: <strong>{formatMoney(priceForMargin(totalLandingCost, 47) * (1 + taxRate))}</strong> min • <strong>{formatMoney(priceForMargin(totalLandingCost, 50) * (1 + taxRate))}</strong> target
-                      </div>
-                    )}
-                  </div>
-                )}
+                {counterAlert}
 
                 <details className="result-section" open>
                   <summary>
                     Margin by Item
                     <span className="summary-chevron">▼</span>
                   </summary>
+                  <Hint>Each item's profit margin — tap a % under an item to reprice just that item</Hint>
                   <div style={{ marginTop: '8px' }}>
-                {calculatedItems.filter(item => item.landingProvided).map((item, i) => (
-                      <div key={item.id} className="margin-item">
-                        <div className="margin-item-header">
-                          <span className="margin-item-name">{item.name || `Item ${i + 1}`}</span>
-                          {item.margin !== null && (
-                            <span 
-                              className="margin-badge"
-                              style={{ 
-                                background: item.margin >= 50 ? colors.success.light : item.margin >= 47 ? colors.warning.light : colors.error.light,
-                                color: getMarginColor(item.margin),
-                                border: `1px solid ${getMarginColor(item.margin)}50`
-                              }}
-                            >
-                              {item.margin.toFixed(1)}% margin
-                            </span>
-                          )}
-                        </div>
-                        {item.invoicePrice > 0 ? (
-                          <div style={{ fontSize: '14px', color: colors.text.secondary, lineHeight: 1.6 }}>
-                            {noTaxPromo ? (
-                              <>
-                                Quote: {formatMoney(item.quotePrice)} • Invoice: {formatMoney(item.invoicePrice)}
-                                {item.qty > 1 && <span style={{ color: colors.text.secondary }}> (per unit × {item.qty})</span>}
-                              </>
-                            ) : (
-                              <>
-                                Sale: {formatMoney(item.invoicePrice)} (+ tax at register)
-                                {item.qty > 1 && <span style={{ color: colors.text.secondary }}> per unit × {item.qty}</span>}
-                              </>
-                            )}
-                            <br/>
-                            Landing: {formatMoney(item.landingCost)}/unit
-                            {item.qty > 1 && <span> • Line total: {formatMoney(item.lineTotal)}</span>}
-                          </div>
-                        ) : (
-                          <div style={{ fontSize: '14px', color: colors.text.secondary, lineHeight: 1.6 }}>
-                            Landing: {formatMoney(item.landingCost)} • <em>Tap a margin target below</em>
-                          </div>
-                        )}
-                        <div style={{ fontSize: '13px', color: colors.primary[400], marginTop: '8px', marginBottom: '4px', fontWeight: 600 }}>
-                          {item.selectedMargin
-                            ? 'Tap again to restore original price:'
-                            : (noTaxPromo ? 'Tap to set price (shows quote w/ tax):' : 'Tap to set sale price:')}
-                        </div>
-                        <div className="margin-prices">
-                          <div 
-                            className={`margin-price-box ${item.selectedMargin === 50 ? 'current' : ''}`}
-                            onClick={() => setItemToMargin(item.id, 50)}
-                            style={{ cursor: 'pointer' }}
+                {calculatedItems.filter(item => item.landingProvided && item.packageId == null).map((item, i) => renderMarginItem(item, i))}
+                {packages.map(pkg => {
+                  const pcs = calculatedItems.filter(ci => ci.packageId === pkg.id && ci.landingProvided);
+                  if (!pcs.length) return null;
+                  const allPcs = calculatedItems.filter(ci => ci.packageId === pkg.id);
+                  const tot = allPcs.reduce((s, ci) => s + ci.lineTotal, 0);
+                  const land = allPcs.reduce((s, ci) => s + ci.totalLandingCost, 0);
+                  const m = tot > 0 && land > 0 ? calculateMargin(tot, land) : null;
+                  return (
+                    <div key={pkg.id} style={{ borderLeft: '3px solid var(--crimson)', paddingLeft: 8, marginTop: 10 }}>
+                      <div className="margin-item-header" style={{ marginBottom: 4 }}>
+                        <span className="margin-item-name">📦 {pkg.name || 'Package'} — {formatMoney(noTaxPromo ? tot * (1 + taxRate) : tot)}</span>
+                        {m !== null && (
+                          <span
+                            className="margin-badge"
+                            style={{
+                              background: m >= 50 ? colors.success.light : m >= 47 ? colors.warning.light : colors.error.light,
+                              color: getMarginColor(m),
+                              border: `1px solid ${getMarginColor(m)}50`
+                            }}
                           >
-                            <div className="margin-price-label">50%</div>
-                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt50 * (1 + taxRate) : item.priceAt50)}</div>
-                          </div>
-                          <div 
-                            className={`margin-price-box ${item.selectedMargin === 49 ? 'current' : ''}`}
-                            onClick={() => setItemToMargin(item.id, 49)}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            <div className="margin-price-label">49%</div>
-                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt49 * (1 + taxRate) : item.priceAt49)}</div>
-                          </div>
-                          <div 
-                            className={`margin-price-box ${item.selectedMargin === 48 ? 'current' : ''}`}
-                            onClick={() => setItemToMargin(item.id, 48)}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            <div className="margin-price-label">48%</div>
-                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt48 * (1 + taxRate) : item.priceAt48)}</div>
-                          </div>
-                          <div 
-                            className={`margin-price-box ${item.selectedMargin === 47 ? 'current' : ''}`}
-                            onClick={() => setItemToMargin(item.id, 47)}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            <div className="margin-price-label">47%</div>
-                            <div className="margin-price-value">{formatMoney(noTaxPromo ? item.priceAt47 * (1 + taxRate) : item.priceAt47)}</div>
-                          </div>
-                        </div>
-                        <div className="custom-margin-row">
-                          <span className="custom-margin-label">Custom</span>
-                          <div className="custom-margin-field">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              className="custom-margin-input"
-                              placeholder="%"
-                              value={itemCustomMargin[item.id] ?? ''}
-                              onChange={(e) => setItemCustomMargin(prev => ({ ...prev, [item.id]: e.target.value }))}
-                              onKeyDown={(e) => { if (e.key === 'Enter') applyItemCustomMargin(item.id); }}
-                              aria-label="Custom margin percent for this item"
-                            />
-                          </div>
-                          {clampMargin(itemCustomMargin[item.id]) != null && item.landingCost > 0 && (
-                            <span className="custom-margin-preview">
-                              = {formatMoney(noTaxPromo ? priceForMargin(item.landingCost, clampMargin(itemCustomMargin[item.id])) * (1 + taxRate) : priceForMargin(item.landingCost, clampMargin(itemCustomMargin[item.id])))}
-                            </span>
-                          )}
-                          <button className="custom-margin-set" onClick={() => applyItemCustomMargin(item.id)} disabled={clampMargin(itemCustomMargin[item.id]) == null}>Set</button>
-                        </div>
-                        {noTaxPromo && item.margin !== null && (
-                          <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '8px', background: colors.warning.light, border: `1px solid ${colors.warning.main}40`, padding: '8px', borderRadius: '6px' }}>
-                            📝 <strong>Invoice:</strong> Write {formatMoney(item.invoicePrice)} for {item.margin.toFixed(0)}% margin → customer pays {formatMoney(item.quotePrice)}
-                          </div>
+                            {m.toFixed(1)}% margin
+                          </span>
                         )}
                       </div>
-                    ))}
+                      {pcs.map((ci, j) => renderMarginItem(ci, j))}
+                    </div>
+                  );
+                })}
                   </div>
                 </details>
 
@@ -3044,7 +3443,7 @@ export default function AshleyDealCalculator() {
                         <tbody>
                           {ladderItems.map((item, i) => (
                             <tr key={item.id} style={{ borderBottom: `1px solid ${colors.primary[100]}` }}>
-                              <td style={{ padding: '7px 6px', color: colors.text.primary }}>{item.name || `Item ${i + 1}`}{item.qty > 1 ? ` ×${item.qty}` : ''}</td>
+                              <td style={{ padding: '7px 6px', color: colors.text.primary }}>{itemLabel(item, i)}{item.qty > 1 ? ` ×${item.qty}` : ''}</td>
                               <td style={{ padding: '7px 6px', textAlign: 'right', color: colors.text.secondary, textDecoration: 'line-through' }}>{formatMoney(taxAdj(item.regularUnit * item.qty))}</td>
                               <td style={{ padding: '7px 6px', textAlign: 'right', color: colors.text.primary }}>{formatMoney(taxAdj(item.standardSaleUnit * item.qty))}</td>
                               {anyDeal && <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: colors.primary[400] }}>{formatMoney(taxAdj(item.dealUnit * item.qty))}</td>}
@@ -3078,12 +3477,32 @@ export default function AshleyDealCalculator() {
                       <span className="summary-chevron">▼</span>
                     </summary>
                     <div style={{ marginTop: '8px' }}>
-                      {calculatedItems.map((item, i) => (
+                      {calculatedItems.filter(item => item.packageId == null).map((item, i) => (
                         <div key={item.id} className="breakdown-row">
-                          <span className="breakdown-label">{item.name || `Item ${i + 1}`} × {item.qty}</span>
+                          <span className="breakdown-label">{itemLabel(item, i)} × {item.qty}</span>
                           <span className="breakdown-value">{noTaxPromo ? formatMoney(item.quotePrice * item.qty) : formatMoney(item.lineTotal)}</span>
                         </div>
                       ))}
+                      {packages.map(pkg => {
+                        const pcs = calculatedItems.filter(ci => ci.packageId === pkg.id);
+                        if (!pcs.length) return null;
+                        const pkgTotal = pcs.reduce((s, ci) => s + (noTaxPromo ? ci.quotePrice * ci.qty : ci.lineTotal), 0);
+                        const pieceCount = pcs.reduce((s, ci) => s + ci.qty, 0);
+                        return (
+                          <div key={pkg.id}>
+                            <div className="breakdown-row">
+                              <span className="breakdown-label" style={{ fontWeight: 600 }}>📦 {pkg.name || 'Package'} ({pieceCount} pc)</span>
+                              <span className="breakdown-value">{formatMoney(pkgTotal)}</span>
+                            </div>
+                            {pcs.map((ci, j) => (
+                              <div key={ci.id} className="breakdown-row" style={{ borderBottom: 'none', padding: '2px 0 2px 16px', opacity: 0.75 }}>
+                                <span className="breakdown-label" style={{ fontSize: '13px' }}>• {itemLabel(ci, j)}{ci.qty > 1 ? ` × ${ci.qty}` : ''}</span>
+                                <span />
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
                       <div className="breakdown-row">
                         <span className="breakdown-label">Merchandise Subtotal</span>
                         <span className="breakdown-value">{noTaxPromo ? formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0)) : formatMoney(subtotal)}</span>
@@ -3138,6 +3557,7 @@ export default function AshleyDealCalculator() {
                       title="Send to Frank (Manager)"
                       content={managerSummary}
                     />
+                    <Hint>Tap the box to copy the deal, or Text Frank to send it for approval</Hint>
                     <a
                       className="result-btn secondary"
                       style={{ width: '100%', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
@@ -3145,6 +3565,8 @@ export default function AshleyDealCalculator() {
                     >
                       💬 Text Frank
                     </a>
+                  </>
+                )}
                   </>
                 )}
 
@@ -3183,7 +3605,41 @@ export default function AshleyDealCalculator() {
               <div className="quote-tagline">Comfort · Quality · Value</div>
             </div>
 
+            {calculatedItems.some(item => item.invoicePrice > 0) && (
+              <div className="quote-items">
+                {calculatedItems.filter(item => item.packageId == null && item.invoicePrice > 0).map((item, i) => (
+                  <div key={item.id} className="quote-item-line">
+                    <span>{itemLabel(item, i)}{item.qty > 1 ? ` × ${item.qty}` : ''}</span>
+                    <span>{formatMoney((noTaxPromo ? item.quotePrice : item.invoicePrice) * item.qty)}</span>
+                  </div>
+                ))}
+                {packages.map(pkg => {
+                  const pcs = calculatedItems.filter(ci => ci.packageId === pkg.id && ci.invoicePrice > 0);
+                  if (!pcs.length) return null;
+                  const pkgTotal = pcs.reduce((s, ci) => s + (noTaxPromo ? ci.quotePrice : ci.invoicePrice) * ci.qty, 0);
+                  const pieceCount = pcs.reduce((s, ci) => s + ci.qty, 0);
+                  return (
+                    <div key={pkg.id}>
+                      <div className="quote-item-line" style={{ fontWeight: 700 }}>
+                        <span>{pkg.name || 'Package'} ({pieceCount} pc)</span>
+                        <span>{formatMoney(pkgTotal)}</span>
+                      </div>
+                      {pcs.map((ci, j) => (
+                        <div key={ci.id} className="quote-item-line" style={{ paddingLeft: 14, borderBottom: 'none', color: '#666' }}>
+                          <span>• {itemLabel(ci, j)}{ci.qty > 1 ? ` × ${ci.qty}` : ''}</span>
+                          <span />
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             <div className="quote-cards">
+              {/* Regular-vs-Your-Price is only honest when every line has a regular-price anchor
+                  (package prices have no derivable "regular") — otherwise show just Your Price */}
+              {ladderComplete && regularTotal > 0.005 && (
               <div className="quote-card regular">
                 <div className="quote-card-head">
                   <span className="quote-card-title">Regular Price</span>
@@ -3194,6 +3650,7 @@ export default function AshleyDealCalculator() {
                 {protectionPlanCost > 0 && <div className="quote-line"><span>Protection Plan</span><span>{formatMoney(protectionPlanCost)}</span></div>}
                 <div className="quote-card-total"><span>Total</span><span>{formatMoney(regularGrandTotal)}</span></div>
               </div>
+              )}
 
               <div className="quote-card sale">
                 <div className="quote-card-head">
@@ -3208,7 +3665,7 @@ export default function AshleyDealCalculator() {
               </div>
             </div>
 
-            {quoteSavings > 0.005 && (
+            {ladderComplete && regularTotal > 0.005 && quoteSavings > 0.005 && (
               <div className="quote-savings">
                 <div className="quote-savings-label">Customer Savings</div>
                 <div className="quote-savings-amount">{formatMoney(quoteSavings)}</div>
@@ -3217,10 +3674,13 @@ export default function AshleyDealCalculator() {
 
             <div className="quote-prepared">Prepared for customer review · {new Date().toLocaleDateString()}</div>
           </div>
-          <div className="invoice-actions no-print" onClick={e => e.stopPropagation()}>
-            <button className="result-btn primary" onClick={handleShareQuote}>Share</button>
-            <button className="result-btn secondary" onClick={() => window.print()}>Print</button>
-            <button className="result-btn secondary" onClick={() => setShowInvoice(false)}>Close</button>
+          <div className="no-print" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 520 }}>
+            <div className="invoice-actions" style={{ marginTop: 12 }}>
+              <button className="result-btn primary" onClick={handleShareQuote}>Share</button>
+              <button className="result-btn secondary" onClick={() => window.print()}>Print</button>
+              <button className="result-btn secondary" onClick={() => setShowInvoice(false)}>Close</button>
+            </div>
+            <Hint>Share texts or emails this quote to the customer — Print makes a paper copy</Hint>
           </div>
         </div>
       )}
