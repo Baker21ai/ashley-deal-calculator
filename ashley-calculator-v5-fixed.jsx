@@ -683,6 +683,31 @@ export default function AshleyDealCalculator() {
     return 'Too Low';
   };
 
+  // Traffic-light verdict for the Simple results view (same thresholds as getMarginColor/Label)
+  const getVerdict = (margin) => margin >= 50
+    ? { icon: '✓', label: 'GOOD DEAL', color: colors.success.main, bg: colors.success.light }
+    : margin >= 47
+    ? { icon: '⚠', label: 'OK — YOUR CALL', color: colors.warning.main, bg: colors.warning.light }
+    : { icon: '✗', label: 'TOO LOW', color: colors.error.main, bg: colors.error.light };
+
+  // Counter guidance when the deal is under the 47% floor — one source of truth for both result views
+  const counterAlert = (overallMargin !== null && overallMargin < 47 && totalLandingCost > 0) ? (
+    <div style={{ background: colors.error.light, border: `1px solid ${colors.error.main}50`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
+      <div style={{ fontSize: '12px', fontWeight: 700, color: colors.error.main, marginBottom: '6px' }}>Counter needed — below 47% floor</div>
+      <div style={{ fontSize: '14px', color: colors.text.primary }}>
+        Min invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 47))}</strong> for 47%
+      </div>
+      <div style={{ fontSize: '14px', color: colors.text.primary, marginTop: '2px' }}>
+        Target invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 50))}</strong> for 50%
+      </div>
+      {noTaxPromo && (
+        <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '4px' }}>
+          Customer quote: <strong>{formatMoney(priceForMargin(totalLandingCost, 47) * (1 + taxRate))}</strong> min • <strong>{formatMoney(priceForMargin(totalLandingCost, 50) * (1 + taxRate))}</strong> target
+        </div>
+      )}
+    </div>
+  ) : null;
+
   // Copy helper with feedback
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
@@ -2519,6 +2544,20 @@ export default function AshleyDealCalculator() {
         .quote-tagline { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.18em; margin-top: 6px; }
         .quote-items { margin-bottom: 16px; }
         .quote-item-line { display: flex; justify-content: space-between; gap: 12px; padding: 6px 2px; font-size: 13px; color: #333; border-bottom: 1px dashed #d8d3c8; }
+
+        /* Results Simple|Detailed view toggle */
+        .results-view-toggle {
+          display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+          background: var(--surface-2); border: 1px solid var(--line);
+          border-radius: var(--radius-sm); padding: 4px; margin-bottom: 14px;
+        }
+        .results-view-btn {
+          min-height: var(--tap); border: none; border-radius: 6px;
+          background: transparent; color: var(--muted);
+          font-size: var(--text-sm); font-weight: 700; cursor: pointer;
+        }
+        .results-view-btn.active { background: var(--crimson); color: #fff; }
+        .verdict-hero { text-align: center; padding: 18px 14px; border-radius: 12px; }
         /* Two comparison cards */
         .quote-cards { display: flex; gap: 14px; }
         .quote-card { flex: 1; border: 1px solid #e0ddd6; border-radius: 10px; padding: 16px; background: #fcfbf9; min-width: 0; }
@@ -2869,6 +2908,67 @@ export default function AshleyDealCalculator() {
             </div>
             <div className="sheet-content">
 
+                {/* Simple | Detailed view toggle */}
+                <div className="results-view-toggle">
+                  <button
+                    className={`results-view-btn${resultsView === 'simple' ? ' active' : ''}`}
+                    onClick={() => setResultsView('simple')}
+                    aria-pressed={resultsView === 'simple'}
+                  >
+                    Simple
+                  </button>
+                  <button
+                    className={`results-view-btn${resultsView === 'detailed' ? ' active' : ''}`}
+                    onClick={() => setResultsView('detailed')}
+                    aria-pressed={resultsView === 'detailed'}
+                  >
+                    Detailed
+                  </button>
+                </div>
+
+                {resultsView === 'simple' && (
+                  <>
+                    {overallMargin !== null ? (
+                      <div className="big-total verdict-hero" style={{ background: getVerdict(overallMargin).bg, border: `1px solid ${getVerdict(overallMargin).color}50` }}>
+                        <div style={{ fontSize: '28px', lineHeight: 1 }}>{getVerdict(overallMargin).icon}</div>
+                        <div style={{ fontSize: '20px', fontWeight: 800, color: getVerdict(overallMargin).color, letterSpacing: '0.03em', marginTop: '6px' }}>
+                          {getVerdict(overallMargin).label}
+                        </div>
+                        <div className="big-total-amount" style={{ marginTop: '4px' }}>{overallMargin.toFixed(1)}%</div>
+                        <div className="big-total-sub" style={{ marginTop: '2px' }}>margin</div>
+                        {subtotal > 0 && (
+                          <div style={{ marginTop: '12px', fontSize: '16px', color: colors.text.primary }}>
+                            Customer pays <strong style={{ fontSize: '19px' }}>{formatMoney(customerTotal)}</strong>
+                          </div>
+                        )}
+                        {subtotal > 0 && regularTotal > 0 && savingsVsRegular > 0.005 && (
+                          <div style={{ marginTop: '4px', fontSize: '14px', color: colors.success.main, fontWeight: 600 }}>
+                            They save {formatMoney(taxAdj(savingsVsRegular))} off regular
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="big-total">
+                        <div className="big-total-label">Margin Check</div>
+                        <div className="big-total-amount" style={{ fontSize: '20px', color: 'rgba(255,255,255,0.6)' }}>Enter landing cost</div>
+                        <div className="big-total-sub">Add landing cost to see margin</div>
+                      </div>
+                    )}
+                    {counterAlert}
+                    {counterAlert && subtotal > 0 && (
+                      <a
+                        className="result-btn secondary"
+                        style={{ width: '100%', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
+                        href={`sms:?&body=${encodeURIComponent(managerSummary)}`}
+                      >
+                        💬 Text Frank to approve
+                      </a>
+                    )}
+                  </>
+                )}
+
+                {resultsView === 'detailed' && (
+                  <>
                 {overallMargin !== null ? (
                   <div className="big-total">
                     <div className="big-total-label">Overall Margin</div>
@@ -2936,22 +3036,7 @@ export default function AshleyDealCalculator() {
                   </div>
                 )}
 
-                {overallMargin !== null && overallMargin < 47 && totalLandingCost > 0 && (
-                  <div style={{ background: colors.error.light, border: `1px solid ${colors.error.main}50`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 700, color: colors.error.main, marginBottom: '6px' }}>Counter needed — below 47% floor</div>
-                    <div style={{ fontSize: '14px', color: colors.text.primary }}>
-                      Min invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 47))}</strong> for 47%
-                    </div>
-                    <div style={{ fontSize: '14px', color: colors.text.primary, marginTop: '2px' }}>
-                      Target invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 50))}</strong> for 50%
-                    </div>
-                    {noTaxPromo && (
-                      <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '4px' }}>
-                        Customer quote: <strong>{formatMoney(priceForMargin(totalLandingCost, 47) * (1 + taxRate))}</strong> min • <strong>{formatMoney(priceForMargin(totalLandingCost, 50) * (1 + taxRate))}</strong> target
-                      </div>
-                    )}
-                  </div>
-                )}
+                {counterAlert}
 
                 <details className="result-section" open>
                   <summary>
@@ -3189,6 +3274,8 @@ export default function AshleyDealCalculator() {
                     >
                       💬 Text Frank
                     </a>
+                  </>
+                )}
                   </>
                 )}
 
