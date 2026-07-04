@@ -776,6 +776,9 @@ export default function AshleyDealCalculator() {
     );
   };
 
+  // Small helper caption shown only when Hints mode is on — plain text, never blocks taps
+  const Hint = ({ children }) => hintsOn ? <div className="hint">💡 {children}</div> : null;
+
   const CopyBlock = ({ title, content }) => {
     const [copied, setCopied] = useState(false);
 
@@ -2558,6 +2561,9 @@ export default function AshleyDealCalculator() {
         }
         .results-view-btn.active { background: var(--crimson); color: #fff; }
         .verdict-hero { text-align: center; padding: 18px 14px; border-radius: 12px; }
+
+        /* Hints mode captions */
+        .hint { font-size: var(--text-xs); color: var(--muted); font-style: italic; line-height: 1.4; margin: 4px 2px 0; }
         /* Two comparison cards */
         .quote-cards { display: flex; gap: 14px; }
         .quote-card { flex: 1; border: 1px solid #e0ddd6; border-radius: 10px; padding: 16px; background: #fcfbf9; min-width: 0; }
@@ -2678,8 +2684,16 @@ export default function AshleyDealCalculator() {
           >
             Protection {includeProtection ? 'ON' : 'OFF'}
           </button>
+          <button
+            className={`setting-chip ${hintsOn ? 'active' : ''}`}
+            aria-pressed={hintsOn}
+            onClick={() => setHintsOn(!hintsOn)}
+          >
+            💡 Hints
+          </button>
           <button className="setting-chip gear" onClick={() => setShowSettingsModal(true)}>⚙</button>
         </div>
+        <Hint>These chips set the deal: tap Sale % to cycle discounts, No-Tax for the tax-included promo, Del for delivery</Hint>
 
         {/* Settings Modal */}
         {showSettingsModal && (
@@ -2744,6 +2758,14 @@ export default function AshleyDealCalculator() {
                     </div>
                   )}
                 </div>
+                <div className="setting-group">
+                  <label>Hints</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className={`toggle-compact ${hintsOn ? 'on' : ''}`} role="switch" aria-checked={hintsOn} aria-label="Hints" tabIndex={0} onClick={() => setHintsOn(!hintsOn)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setHintsOn(!hintsOn); }}} />
+                    <span style={{ fontSize: 11, color: hintsOn ? colors.success.main : colors.text.secondary }}>{hintsOn ? 'ON' : 'OFF'}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>Show 💡 tips explaining what each control does</div>
+                </div>
               </div>
               <button className="help-close" onClick={() => setShowSettingsModal(false)}>Done</button>
             </div>
@@ -2755,6 +2777,7 @@ export default function AshleyDealCalculator() {
         <div className="card" style={{ padding: 8 }}>
           {errors.price && <div className="error-text" style={{ paddingLeft: 4 }}>{errors.price}</div>}
           {errors.landingCost && <div className="error-text" style={{ paddingLeft: 4 }}>{errors.landingCost}</div>}
+          <Hint>Enter the customer's price and the landing cost — either one can auto-fill the other</Hint>
 
           {items.map((item) => (
             <div key={item.id} className="item-card-compact" data-item>
@@ -2854,6 +2877,9 @@ export default function AshleyDealCalculator() {
                   <button className="item-remove-btn" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: false }); if (!item.name) updateItem(item.id, 'name', ''); }} title="Back to presets" style={{ fontSize: 12 }}>↩</button>
                 )}
               </div>
+              {items[0] && items[0].id === item.id && (
+                <Hint>Landing = what the store pays. Est. guesses it from retail ÷ 3.3 — type over it if you know the real number</Hint>
+              )}
               {estimateFeedback[item.id] && (
                 <div
                   className="estimate-feedback"
@@ -2925,6 +2951,7 @@ export default function AshleyDealCalculator() {
                     Detailed
                   </button>
                 </div>
+                <Hint>Simple shows the verdict — Detailed shows every number and the pricing tools</Hint>
 
                 {resultsView === 'simple' && (
                   <>
@@ -2994,6 +3021,7 @@ export default function AshleyDealCalculator() {
                 {totalLandingCost > 0 && (
                   <div style={{ background: colors.primary[50], border: `1px solid ${colors.primary[200]}`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
                     <div style={{ fontSize: '14px', fontWeight: 700, color: colors.primary[400], marginBottom: '8px' }}>Set Entire Order to Margin</div>
+                    <Hint>Tap a % to reprice the whole order to hit that margin — tap it again to undo</Hint>
                     <div className="margin-prices">
                       {MARGIN_PRESETS.map(target => (
                         <div
@@ -3043,6 +3071,7 @@ export default function AshleyDealCalculator() {
                     Margin by Item
                     <span className="summary-chevron">▼</span>
                   </summary>
+                  <Hint>Each item's profit margin — tap a % under an item to reprice just that item</Hint>
                   <div style={{ marginTop: '8px' }}>
                 {calculatedItems.filter(item => item.landingProvided).map((item, i) => (
                       <div key={item.id} className="margin-item">
@@ -3267,6 +3296,7 @@ export default function AshleyDealCalculator() {
                       title="Send to Frank (Manager)"
                       content={managerSummary}
                     />
+                    <Hint>Tap the box to copy the deal, or Text Frank to send it for approval</Hint>
                     <a
                       className="result-btn secondary"
                       style={{ width: '100%', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}
@@ -3359,10 +3389,13 @@ export default function AshleyDealCalculator() {
 
             <div className="quote-prepared">Prepared for customer review · {new Date().toLocaleDateString()}</div>
           </div>
-          <div className="invoice-actions no-print" onClick={e => e.stopPropagation()}>
-            <button className="result-btn primary" onClick={handleShareQuote}>Share</button>
-            <button className="result-btn secondary" onClick={() => window.print()}>Print</button>
-            <button className="result-btn secondary" onClick={() => setShowInvoice(false)}>Close</button>
+          <div className="no-print" onClick={e => e.stopPropagation()} style={{ width: '100%', maxWidth: 520 }}>
+            <div className="invoice-actions" style={{ marginTop: 12 }}>
+              <button className="result-btn primary" onClick={handleShareQuote}>Share</button>
+              <button className="result-btn secondary" onClick={() => window.print()}>Print</button>
+              <button className="result-btn secondary" onClick={() => setShowInvoice(false)}>Close</button>
+            </div>
+            <Hint>Share texts or emails this quote to the customer — Print makes a paper copy</Hint>
           </div>
         </div>
       )}
