@@ -19,6 +19,7 @@ const MORE_ITEM_PRESETS = [
 const createEmptyItem = (id = Date.now()) => ({
   id,
   name: '',
+  sku: '',
   price: '',
   qty: 1,
   landingCost: '',
@@ -35,6 +36,7 @@ const normalizeItem = (item, fallbackId) => {
   return {
     id: safeItem.id ?? fallbackId,
     name: safeItem.name ?? '',
+    sku: safeItem.sku ?? '',
     price: safeItem.price ?? '',
     qty: Number.isFinite(qtyValue) && qtyValue > 0 ? qtyValue : 1,
     landingCost: safeItem.landingCost ?? '',
@@ -89,6 +91,13 @@ function formatMoney(num) {
 
 function parseMoney(str) {
   return parseFloat(String(str).replace(/[$,]/g, '')) || 0;
+}
+
+// Display name for an item, with its item number (SKU) when one was entered
+function itemLabel(item, i) {
+  const name = item.name || `Item ${i + 1}`;
+  const sku = String(item.sku || '').trim();
+  return sku ? `${name} #${sku}` : name;
 }
 
 // Calculate margin given sale price and landing cost
@@ -190,6 +199,23 @@ export default function AshleyDealCalculator() {
     typeof storedState?.includeProtection === 'boolean' ? storedState.includeProtection : false
   );
 
+  // View & accessibility preferences (persisted)
+  const [resultsView, setResultsView] = useState(
+    storedState?.resultsView === 'detailed' ? 'detailed' : 'simple'
+  );
+  const [easyRead, setEasyRead] = useState(
+    typeof storedState?.easyRead === 'boolean' ? storedState.easyRead : false
+  );
+  // Hints default ON for brand-new users (no saved state yet), OFF stays off once toggled
+  const [hintsOn, setHintsOn] = useState(
+    typeof storedState?.hintsOn === 'boolean' ? storedState.hintsOn : storedState === null
+  );
+
+  // Package groups: [{ id, name, price }] — pieces are items with a matching packageId
+  const [packages, setPackages] = useState(
+    Array.isArray(storedState?.packages) ? storedState.packages.filter(p => p && typeof p === 'object' && p.id != null) : []
+  );
+
   // Calculation history
   const HISTORY_KEY = 'ashley-calculator-history';
   const MAX_HISTORY = 10;
@@ -214,12 +240,16 @@ export default function AshleyDealCalculator() {
         delivery,
         items,
         includeProtection,
+        resultsView,
+        easyRead,
+        hintsOn,
+        packages,
       };
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch (e) {
       console.error('Failed to save state:', e);
     }
-  }, [salePercent, noTaxPromo, priceType, delivery, items, includeProtection]);
+  }, [salePercent, noTaxPromo, priceType, delivery, items, includeProtection, resultsView, easyRead, hintsOn, packages]);
 
   const taxRate = TAX_RATE / 100;
 
@@ -291,6 +321,7 @@ export default function AshleyDealCalculator() {
       salePercent,
       includeProtection,
       items: items.map(i => ({ ...i })),
+      packages: packages.map(p => ({ ...p })),
     };
     setHistory(prev => {
       const next = [entry, ...prev].slice(0, MAX_HISTORY);
@@ -420,7 +451,7 @@ export default function AshleyDealCalculator() {
     'DEAL FOR APPROVAL',
     ...calculatedItems
       .filter(i => i.landingProvided)
-      .map((item, i) => `${item.name || `Item ${i + 1}`} x${item.qty}: cost ${formatMoney(item.landingCost)} -> ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '--'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '--'}`),
+      .map((item, i) => `${itemLabel(item, i)} x${item.qty}: cost ${formatMoney(item.landingCost)} -> ${item.invoicePrice > 0 ? formatMoney(item.invoicePrice) : '--'} = ${item.margin !== null ? item.margin.toFixed(0) + '%' : '--'}`),
     '',
     `Customer pays: ${formatMoney(customerTotal)}`,
     `Merch ${formatMoney(subtotal)} | Landing ${formatMoney(totalLandingCost)} | Profit ${totalProfit > 0 ? formatMoney(totalProfit) : '--'}`,
@@ -607,6 +638,7 @@ export default function AshleyDealCalculator() {
     setPriceType('sale');
     setDelivery(String(DEFAULT_DELIVERY));
     setItems([createEmptyItem(1)]);
+    setPackages([]);
     setErrors({});
     setExpandedItemPresets({});
     setShowCustomInput({});
@@ -618,6 +650,7 @@ export default function AshleyDealCalculator() {
 
   const restoreFromHistory = (entry) => {
     setItems(entry.items.map((item, index) => normalizeItem(item, Date.now() + index)));
+    setPackages(Array.isArray(entry.packages) ? entry.packages.map(p => ({ ...p })) : []);
     setDelivery(String(entry.delivery));
     setNoTaxPromo(entry.noTaxPromo);
     setPriceType(entry.priceType ?? 'sale');
@@ -2484,6 +2517,8 @@ export default function AshleyDealCalculator() {
         }
         .quote-title-input:focus { border-bottom: 1px dashed #b08d2e; }
         .quote-tagline { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.18em; margin-top: 6px; }
+        .quote-items { margin-bottom: 16px; }
+        .quote-item-line { display: flex; justify-content: space-between; gap: 12px; padding: 6px 2px; font-size: 13px; color: #333; border-bottom: 1px dashed #d8d3c8; }
         /* Two comparison cards */
         .quote-cards { display: flex; gap: 14px; }
         .quote-card { flex: 1; border: 1px solid #e0ddd6; border-radius: 10px; padding: 16px; background: #fcfbf9; min-width: 0; }
@@ -2763,6 +2798,15 @@ export default function AshleyDealCalculator() {
                     <span className="auto-tag" title="Auto-estimated from price — edit to override">auto</span>
                   )}
                 </div>
+                <input
+                  type="text"
+                  className="input-compact"
+                  style={{ width: 96, flex: 'none' }}
+                  placeholder="Item #"
+                  value={item.sku}
+                  onChange={(e) => updateItem(item.id, 'sku', e.target.value)}
+                  aria-label="Item number (SKU)"
+                />
                 <button className="item-estimate-btn" onClick={() => estimateLandingCost(item.id)} title="Estimate landing cost (price ÷ 3.3)">Est.</button>
                 {items.length > 1 && (
                   <button className="item-remove-btn" onClick={() => removeItem(item.id)} title="Remove item">×</button>
@@ -2918,7 +2962,7 @@ export default function AshleyDealCalculator() {
                 {calculatedItems.filter(item => item.landingProvided).map((item, i) => (
                       <div key={item.id} className="margin-item">
                         <div className="margin-item-header">
-                          <span className="margin-item-name">{item.name || `Item ${i + 1}`}</span>
+                          <span className="margin-item-name">{itemLabel(item, i)}</span>
                           {item.margin !== null && (
                             <span 
                               className="margin-badge"
@@ -3044,7 +3088,7 @@ export default function AshleyDealCalculator() {
                         <tbody>
                           {ladderItems.map((item, i) => (
                             <tr key={item.id} style={{ borderBottom: `1px solid ${colors.primary[100]}` }}>
-                              <td style={{ padding: '7px 6px', color: colors.text.primary }}>{item.name || `Item ${i + 1}`}{item.qty > 1 ? ` ×${item.qty}` : ''}</td>
+                              <td style={{ padding: '7px 6px', color: colors.text.primary }}>{itemLabel(item, i)}{item.qty > 1 ? ` ×${item.qty}` : ''}</td>
                               <td style={{ padding: '7px 6px', textAlign: 'right', color: colors.text.secondary, textDecoration: 'line-through' }}>{formatMoney(taxAdj(item.regularUnit * item.qty))}</td>
                               <td style={{ padding: '7px 6px', textAlign: 'right', color: colors.text.primary }}>{formatMoney(taxAdj(item.standardSaleUnit * item.qty))}</td>
                               {anyDeal && <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: colors.primary[400] }}>{formatMoney(taxAdj(item.dealUnit * item.qty))}</td>}
@@ -3080,7 +3124,7 @@ export default function AshleyDealCalculator() {
                     <div style={{ marginTop: '8px' }}>
                       {calculatedItems.map((item, i) => (
                         <div key={item.id} className="breakdown-row">
-                          <span className="breakdown-label">{item.name || `Item ${i + 1}`} × {item.qty}</span>
+                          <span className="breakdown-label">{itemLabel(item, i)} × {item.qty}</span>
                           <span className="breakdown-value">{noTaxPromo ? formatMoney(item.quotePrice * item.qty) : formatMoney(item.lineTotal)}</span>
                         </div>
                       ))}
@@ -3182,6 +3226,17 @@ export default function AshleyDealCalculator() {
               />
               <div className="quote-tagline">Comfort · Quality · Value</div>
             </div>
+
+            {calculatedItems.some(item => item.invoicePrice > 0) && (
+              <div className="quote-items">
+                {calculatedItems.filter(item => item.invoicePrice > 0).map((item, i) => (
+                  <div key={item.id} className="quote-item-line">
+                    <span>{itemLabel(item, i)}{item.qty > 1 ? ` × ${item.qty}` : ''}</span>
+                    <span>{formatMoney((noTaxPromo ? item.quotePrice : item.invoicePrice) * item.qty)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div className="quote-cards">
               <div className="quote-card regular">
