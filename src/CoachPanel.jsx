@@ -145,7 +145,8 @@ export default function CoachPanel({
     if (resp.reply) onVerdict?.({ text: resp.reply, verdict: resp.verdict });
 
     // Auto-collapse so calculator is visible while rep digests the reply.
-    setTimeout(() => setCollapsed(true), 300);
+    // Not when we're offline: that message needs to be read in full.
+    if (!resp.offline) setTimeout(() => setCollapsed(true), 300);
   };
 
   const handleSubmit = (text) => {
@@ -255,29 +256,66 @@ export default function CoachPanel({
             style={{ padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
           >
             <VerdictDot verdict={lastAi.verdict} />
-            <div style={{ flex: 1, fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {/* Wraps instead of truncating — a half-sentence tells nobody anything. */}
+            <div style={{ flex: 1, fontSize: 15, fontWeight: 600, lineHeight: 1.4 }}>
               {lastAi.text}
             </div>
-            <button onClick={(e) => { e.stopPropagation(); setCollapsed(false); }} style={iconBtn}>▲</button>
-            <button onClick={(e) => { e.stopPropagation(); onClose(); }} style={iconBtn}>✕</button>
+            <button
+              onClick={(e) => { e.stopPropagation(); setCollapsed(false); }}
+              aria-label="Open the coach back up"
+              style={labelledIconBtn}
+            >
+              <span aria-hidden style={{ fontSize: 18 }}>▲</span>
+              <span style={iconBtnLabel}>Open</span>
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onClose(); }}
+              aria-label="Close the coach"
+              style={labelledIconBtn}
+            >
+              <span aria-hidden style={{ fontSize: 18 }}>✕</span>
+              <span style={iconBtnLabel}>Close</span>
+            </button>
           </div>
         ) : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 16, fontWeight: 700 }}>Coach</div>
-                <div style={{ fontSize: 11, color: '#8B91A0' }}>
-                  {busy ? 'thinking…' : listening ? 'listening…' : 'tap mic and talk'}
+                <div style={{ fontSize: 19, fontWeight: 700 }}>AI Sales Coach</div>
+                <div style={{ fontSize: 14, color: '#C9D0DE' }}>
+                  {busy
+                    ? 'Thinking…'
+                    : listening
+                      ? 'Listening — go ahead and talk.'
+                      : 'Ask me about a deal. I can fill in the calculator for you.'}
                 </div>
               </div>
               {ttsSupported && (
-                <button onClick={() => { stopSpeaking(); setTtsEnabled((v) => !v); }} title={ttsEnabled ? 'Mute voice' : 'Unmute voice'} style={iconBtn}>
-                  {ttsEnabled ? '🔊' : '🔇'}
+                <button
+                  onClick={() => { stopSpeaking(); setTtsEnabled((v) => !v); }}
+                  aria-label={ttsEnabled ? 'Turn the spoken voice off' : 'Turn the spoken voice on'}
+                  style={labelledIconBtn}
+                >
+                  <span aria-hidden style={{ fontSize: 18 }}>{ttsEnabled ? '🔊' : '🔇'}</span>
+                  <span style={iconBtnLabel}>{ttsEnabled ? 'Voice on' : 'Voice off'}</span>
                 </button>
               )}
-              <button onClick={() => setShowKb((v) => !v)} title="Knowledge base" style={iconBtn}>📚</button>
-              <button onClick={() => setCollapsed(true)} title="Collapse" style={iconBtn}>▼</button>
-              <button onClick={onClose} title="Close" style={iconBtn}>✕</button>
+              <button
+                onClick={() => setShowKb((v) => !v)}
+                aria-label="Store notes the coach reads — promos, financing, manager scripts"
+                style={labelledIconBtn}
+              >
+                <span aria-hidden style={{ fontSize: 18 }}>📚</span>
+                <span style={iconBtnLabel}>Notes</span>
+              </button>
+              <button onClick={() => setCollapsed(true)} aria-label="Shrink this panel" style={labelledIconBtn}>
+                <span aria-hidden style={{ fontSize: 18 }}>▼</span>
+                <span style={iconBtnLabel}>Hide</span>
+              </button>
+              <button onClick={onClose} aria-label="Close the coach" style={labelledIconBtn}>
+                <span aria-hidden style={{ fontSize: 18 }}>✕</span>
+                <span style={iconBtnLabel}>Close</span>
+              </button>
             </div>
 
             {showKb ? (
@@ -317,50 +355,108 @@ export default function CoachPanel({
                 )}
 
                 <div ref={transcriptRef} style={{ padding: 12, overflowY: 'auto', flex: 1 }}>
-                  {messages.length === 0 && !busy && (
-                    <div style={{ color: '#8B91A0', fontSize: 13, padding: 12, textAlign: 'center' }}>
-                      <div>Say or type something like:</div>
-                      <div style={{ marginTop: 6, color: '#F5F0EB' }}>
-                        "Hartford sectional, customer wants two grand out the door."
+                  {messages.map((m, i) => <Message key={i} m={m} />)}
+
+                  {/* Shown until the user has actually asked something. The panel
+                      is seeded with a greeting on open, so keying this off an
+                      empty transcript would mean it never appeared. */}
+                  {!messages.some((m) => m.role === 'user') && !busy && (
+                    <div style={{ color: '#C9D0DE', fontSize: 15, padding: 12, lineHeight: 1.5 }}>
+                      <div style={{ color: '#F5F0EB', fontWeight: 700, fontSize: 17, marginBottom: 6 }}>
+                        What this does
                       </div>
-                      <button onClick={askCapabilities} style={{ ...secondaryBtn, marginTop: 16 }}>
-                        What can you do?
+                      <div style={{ marginBottom: 14 }}>
+                        Describe a deal out loud (tap the <strong>🎤 Talk</strong> button)
+                        or type it below. I'll work out the numbers and fill in the
+                        calculator for you.
+                      </div>
+                      <div style={{ color: '#F5F0EB', fontWeight: 700, marginBottom: 6 }}>
+                        Tap one to try it:
+                      </div>
+                      {[
+                        'Sofa for nineteen ninety-nine, what\'s my margin?',
+                        'Customer wants two grand out the door on a sectional.',
+                        'What\'s the lowest I can go on this?',
+                      ].map((ex) => (
+                        <button
+                          key={ex}
+                          onClick={() => handleSubmit(ex)}
+                          style={{
+                            ...secondaryBtn,
+                            display: 'block',
+                            width: '100%',
+                            textAlign: 'left',
+                            marginBottom: 8,
+                            fontSize: 15,
+                            padding: '12px 14px',
+                            lineHeight: 1.35,
+                          }}
+                        >
+                          "{ex}"
+                        </button>
+                      ))}
+                      <button
+                        onClick={askCapabilities}
+                        style={{ ...secondaryBtn, marginTop: 8, fontSize: 15, padding: '14px', minHeight: 48, width: '100%', textAlign: 'left' }}
+                      >
+                        What else can you do?
                       </button>
                     </div>
                   )}
-                  {messages.map((m, i) => <Message key={i} m={m} />)}
                   {interim && <div style={{ ...bubbleStyle('user'), opacity: 0.5 }}>{interim}…</div>}
                   {busy && <div style={{ ...bubbleStyle('assistant'), opacity: 0.6 }}>…</div>}
                 </div>
 
                 <div style={{ padding: 10, borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 8, alignItems: 'center' }}>
                   {sttSupported ? (
-                    <button onClick={toggleMic} style={micBtn(listening)} title={listening ? 'Stop' : 'Tap to talk'}>
-                      {listening ? '■' : '🎤'}
+                    <button
+                      onClick={toggleMic}
+                      style={micBtn(listening)}
+                      aria-label={listening ? 'Stop listening' : 'Tap to talk to the coach'}
+                    >
+                      <span aria-hidden style={{ fontSize: 18 }}>{listening ? '■' : '🎤'}</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, lineHeight: 1 }}>
+                        {listening ? 'Stop' : 'Talk'}
+                      </span>
                     </button>
                   ) : (
-                    <div style={{ fontSize: 11, color: '#8B91A0', padding: '0 8px' }}>(voice not supported - type below)</div>
+                    <div style={{ fontSize: 13, color: '#C9D0DE', padding: '0 8px' }}>
+                      Voice isn't available on this phone — type your question instead.
+                    </div>
                   )}
                   <input
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => e.key === 'Enter' && handleSubmit(input)}
-                    placeholder="or type…"
+                    placeholder="Type your question…"
+                    aria-label="Type your question for the coach"
                     style={{
                       flex: 1,
                       background: '#0F1117',
                       color: '#F5F0EB',
                       border: '1px solid rgba(255,255,255,0.1)',
                       borderRadius: 10,
-                      padding: '10px 12px',
-                      fontSize: 14,
+                      padding: '12px 14px',
+                      fontSize: 16,
+                      minHeight: 48,
+                      minWidth: 0,
                       fontFamily: 'inherit',
                     }}
                   />
-                  <button onClick={() => handleSubmit(input)} style={primaryBtn} disabled={busy || !input.trim()}>
+                  <button
+                    onClick={() => handleSubmit(input)}
+                    style={{ ...primaryBtn, minHeight: 48, fontSize: 16 }}
+                    disabled={busy || !input.trim()}
+                  >
                     Send
                   </button>
-                  <button onClick={askWhy} style={iconBtn} title="Explain longer">Why?</button>
+                  <button
+                    onClick={askWhy}
+                    style={{ ...secondaryBtn, minHeight: 48, fontSize: 14, flexShrink: 0 }}
+                    aria-label="Ask the coach to explain its last answer in more detail"
+                  >
+                    Explain
+                  </button>
                 </div>
               </>
             )}
@@ -433,8 +529,8 @@ const chipStyle = {
   color: '#F5F0EB',
   border: '1px solid rgba(255,255,255,0.08)',
   borderRadius: 999,
-  padding: '4px 10px',
-  fontSize: 11,
+  padding: '6px 12px',
+  fontSize: 14,
   fontWeight: 600,
 };
 
@@ -445,6 +541,30 @@ const iconBtn = {
   fontSize: 16,
   padding: '6px 8px',
   cursor: 'pointer',
+};
+
+// Icon plus a word underneath — no control in the coach is icon-only.
+const labelledIconBtn = {
+  background: 'none',
+  border: 'none',
+  color: '#F5F0EB',
+  padding: '4px 6px',
+  minWidth: 48,
+  minHeight: 48,
+  cursor: 'pointer',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 2,
+  fontFamily: 'inherit',
+};
+
+const iconBtnLabel = {
+  fontSize: 14,
+  fontWeight: 600,
+  color: '#C9D0DE',
+  lineHeight: 1,
 };
 
 const primaryBtn = {
@@ -472,12 +592,17 @@ const secondaryBtn = {
 const micBtn = (active) => ({
   background: active ? '#E23744' : 'rgba(255,255,255,0.08)',
   color: active ? 'white' : '#F5F0EB',
-  border: 'none',
-  borderRadius: '50%',
-  width: 44,
-  height: 44,
-  fontSize: 18,
+  border: active ? 'none' : '1px solid rgba(255,255,255,0.18)',
+  borderRadius: 12,
+  width: 56,
+  minHeight: 48,
   cursor: 'pointer',
   flexShrink: 0,
   transition: 'background 0.15s',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 2,
+  fontFamily: 'inherit',
 });

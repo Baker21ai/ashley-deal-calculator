@@ -3,10 +3,14 @@
 
 const ENDPOINT = '/.netlify/functions/coach';
 
+// `offline: true` lets the panel keep itself open and explain the situation
+// rather than auto-collapsing into a one-line error the user can't act on.
 const SAFE_FALLBACK = {
-  reply: 'Voice coach offline. Use the calculator.',
-  tts: 'Coach offline. Just enter the numbers manually for now.',
+  reply: "I can't reach my brain right now, so I can't answer questions. "
+    + 'The calculator itself still works normally — fill in the three boxes and tap Calculate This Deal.',
+  tts: 'I am offline right now. The calculator still works, just enter the numbers yourself.',
   stage: 'freeform',
+  offline: true,
 };
 
 export async function postCoach({ messages, dealState, knowledgeBase, mode, nextMissingSlot }) {

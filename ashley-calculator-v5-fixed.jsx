@@ -650,6 +650,22 @@ export default function AshleyDealCalculator() {
     return 'Too Low';
   };
 
+  // Which colour treatment the verdict card gets. Kept separate from the
+  // label so the card, badge and text never disagree.
+  const getMarginVerdict = (margin) => {
+    if (margin >= 50) return 'good';
+    if (margin >= 47) return 'ok';
+    return 'low';
+  };
+
+  // The takeaway, spelled out. This is what the salesperson actually needs
+  // to know, in words rather than a percentage they have to interpret.
+  const getMarginSentence = (margin) => {
+    if (margin >= 50) return "This deal is good to go — you don't need approval.";
+    if (margin >= 47) return 'This deal is thin. It works, but a manager should sign off.';
+    return 'This deal is below the 47% floor. A manager must approve it.';
+  };
+
   // Copy helper with feedback
   const copyToClipboard = (text) => {
     navigator.clipboard.writeText(text);
@@ -678,7 +694,7 @@ export default function AshleyDealCalculator() {
   const SectionHeader = ({ title, subtitle }) => (
     <div style={{ marginTop: space.lg, marginBottom: space.sm }}>
       <div style={{
-        fontSize: '12px',
+        fontSize: '16px',
         fontWeight: 600,
         color: colors.primary[400],
         textTransform: 'uppercase',
@@ -687,7 +703,7 @@ export default function AshleyDealCalculator() {
         {title}
       </div>
       {subtitle && (
-        <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: 2 }}>
+        <div style={{ fontSize: '15px', color: colors.text.secondary, marginTop: 2 }}>
           {subtitle}
         </div>
       )}
@@ -708,7 +724,7 @@ export default function AshleyDealCalculator() {
           color: config.color,
           padding: `${space.xs}px ${space.md}px`,
           borderRadius: '12px',
-          fontSize: '12px',
+          fontSize: '16px',
           fontWeight: 700,
           letterSpacing: '0.5px'
         }}
@@ -741,7 +757,7 @@ export default function AshleyDealCalculator() {
             borderRadius: '8px',
             padding: space.md,
             fontFamily: 'monospace',
-            fontSize: '12px',
+            fontSize: '16px',
             lineHeight: 1.6,
             whiteSpace: 'pre-wrap',
             cursor: 'pointer',
@@ -758,14 +774,14 @@ export default function AshleyDealCalculator() {
             color: copied ? 'white' : colors.text.secondary,
             padding: `${space.xs}px ${space.sm}px`,
             borderRadius: '4px',
-            fontSize: '10px',
+            fontSize: '15px',
             fontWeight: 600,
             transition: 'all 0.15s',
           }}>
             {copied ? '✓ Copied!' : '📋 Copy'}
           </div>
         </div>
-        <p style={{ fontSize: '11px', color: colors.text.secondary, marginTop: space.xs, textAlign: 'center' }}>
+        <p style={{ fontSize: '15px', color: colors.text.secondary, marginTop: space.xs, textAlign: 'center' }}>
           Tap to copy
         </p>
       </div>
@@ -909,8 +925,9 @@ export default function AshleyDealCalculator() {
           --surface-2: #262B3A;
           --glass: rgba(255,255,255,0.06);
           --line: rgba(255,255,255,0.08);
-          --text: #F5F0EB;
-          --muted: #A0A6B4;
+          --text: #F7F4F0;
+          /* Raised from #A0A6B4 so secondary text clears WCAG AA on our dark surfaces */
+          --muted: #C9D0DE;
           --primary: #E23744;
           --primary-strong: #C92A36;
           --crimson: #E23744;
@@ -924,17 +941,50 @@ export default function AshleyDealCalculator() {
           --shadow-soft: 0 10px 30px rgba(0,0,0,0.3);
           --shadow-card: 0 4px 12px rgba(0,0,0,0.2);
           --shadow-glow: 0 0 20px rgba(226,55,68,0.3);
-          --tap: 44px;
-          --text-xs: 11px;
-          --text-sm: 13px;
-          --text-md: 15px;
-          --text-lg: 20px;
-          --text-xl: 32px;
+          /* Touch + type scale tuned for older users: nothing below 15px, no
+             tap target under 52px. Everything else keys off these. */
+          --tap: 52px;
+          --text-xs: 15px;
+          --text-sm: 16px;
+          --text-md: 18px;
+          --text-lg: 24px;
+          --text-xl: 38px;
         }
 
         body {
           font-family: var(--font-body);
         }
+
+        /* Field label sitting directly above an input: says what to type. */
+        .field-label {
+          display: block;
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--text);
+          margin-bottom: 4px;
+          line-height: 1.3;
+        }
+        /* One-line plain-English explanation under a label or control. */
+        .field-hint {
+          display: block;
+          font-size: 14px;
+          font-weight: 500;
+          color: var(--muted);
+          margin-top: 3px;
+          line-height: 1.35;
+        }
+        /* Instructional strip that tells the user what to do next. */
+        .how-to-strip {
+          background: rgba(226,55,68,0.10);
+          border: 1px solid rgba(226,55,68,0.30);
+          border-radius: var(--radius-md);
+          padding: 12px 14px;
+          margin-bottom: 12px;
+          font-size: 16px;
+          line-height: 1.45;
+          color: var(--text);
+        }
+        .how-to-strip strong { color: var(--primary); }
 
         .app {
           height: 100vh;
@@ -963,16 +1013,20 @@ export default function AshleyDealCalculator() {
           margin: 0 0 12px 0;
           box-shadow: var(--shadow-card);
           display: flex;
-          align-items: center;
-          justify-content: space-between;
+          flex-direction: column;
+          gap: 10px;
         }
         .header-content {
-          flex: 1;
           text-align: center;
         }
+        .header-actions {
+          display: flex;
+          gap: 8px;
+        }
+        .header-actions > button { flex: 1; }
         .header h1 {
           margin: 0;
-          font-size: 20px;
+          font-size: 24px;
           color: var(--text);
           font-weight: 700;
           font-family: var(--font-display);
@@ -980,23 +1034,35 @@ export default function AshleyDealCalculator() {
         }
         .header p {
           margin: 2px 0 0;
-          font-size: 11px;
+          font-size: 14px;
           color: var(--muted);
         }
         .header-menu-btn,
         .header-reset-btn {
           background: var(--glass);
           border: 1px solid var(--line);
-          width: var(--tap);
-          height: var(--tap);
+          min-width: 60px;
+          min-height: var(--tap);
+          padding: 6px 8px;
           border-radius: var(--radius-sm);
-          font-size: 18px;
+          font-size: 20px;
           cursor: pointer;
           display: flex;
+          flex-direction: column;
           align-items: center;
           justify-content: center;
+          gap: 1px;
           color: var(--text);
           transition: all 0.15s;
+          font-family: var(--font-body);
+        }
+        /* Word under every header icon — no icon stands alone. */
+        .header-btn-label {
+          font-size: 14px;
+          font-weight: 700;
+          line-height: 1;
+          color: var(--muted);
+          letter-spacing: 0.2px;
         }
         .header-menu-btn:hover,
         .header-reset-btn:hover {
@@ -1240,16 +1306,17 @@ export default function AshleyDealCalculator() {
         
         .add-item-btn {
           width: 100%;
-          padding: 10px;
+          padding: 14px;
           background: transparent;
-          border: 1px dashed var(--line);
+          border: 2px dashed rgba(226,55,68,0.5);
           border-radius: var(--radius-sm);
           color: var(--crimson);
-          font-size: var(--text-sm);
-          font-weight: 600;
+          font-size: 17px;
+          font-weight: 700;
           cursor: pointer;
           transition: all 0.15s;
-          min-height: 40px;
+          min-height: var(--tap);
+          font-family: var(--font-body);
         }
         .add-item-btn:hover {
           background: var(--glass);
@@ -1354,7 +1421,7 @@ export default function AshleyDealCalculator() {
           line-height: 1.1;
         }
         .sheet-summary-sub {
-          font-size: 12px;
+          font-size: 15px;
           color: var(--muted);
           margin-top: 2px;
         }
@@ -1362,9 +1429,10 @@ export default function AshleyDealCalculator() {
           background: var(--glass);
           border: 1px solid var(--line);
           border-radius: var(--radius-sm);
-          min-width: 36px;
-          min-height: 36px;
-          font-size: 12px;
+          min-width: var(--tap);
+          min-height: var(--tap);
+          padding: 0 14px;
+          font-size: 17px;
           font-weight: 600;
           color: var(--text);
           cursor: pointer;
@@ -1401,20 +1469,41 @@ export default function AshleyDealCalculator() {
           border-radius: var(--radius-md);
           margin-bottom: 12px;
         }
+        /* Verdict colour must match its meaning: red is for a deal that is
+           actually too thin, never for a healthy margin. */
+        .big-total.verdict-good {
+          background: linear-gradient(135deg, #0F9D6E 0%, #0B7A55 100%);
+        }
+        .big-total.verdict-ok {
+          background: linear-gradient(135deg, #C77A06 0%, #9A5D04 100%);
+        }
+        .big-total.verdict-low {
+          background: linear-gradient(135deg, var(--crimson) 0%, var(--primary-strong) 100%);
+        }
         .big-total-label {
-          font-size: 13px;
-          color: rgba(255,255,255,0.9);
+          font-size: 17px;
+          font-weight: 600;
+          color: rgba(255,255,255,0.95);
           margin-bottom: 4px;
         }
         .big-total-amount {
-          font-size: 36px;
+          font-size: 52px;
           font-weight: 700;
           color: white;
+          line-height: 1.05;
         }
         .big-total-sub {
-          font-size: 12px;
-          color: rgba(255,255,255,0.8);
-          margin-top: 4px;
+          font-size: 16px;
+          color: rgba(255,255,255,0.92);
+          margin-top: 6px;
+        }
+        /* Plain-English sentence under the number — the actual takeaway. */
+        .verdict-sentence {
+          font-size: 18px;
+          font-weight: 600;
+          color: #fff;
+          margin-top: 10px;
+          line-height: 1.4;
         }
         
         .badge {
@@ -1428,6 +1517,16 @@ export default function AshleyDealCalculator() {
         .badge.green { background: rgba(52,211,153,0.2); color: var(--success); border: 1px solid rgba(52,211,153,0.3); }
         .badge.orange { background: rgba(251,191,36,0.2); color: var(--warning); border: 1px solid rgba(251,191,36,0.3); }
         .badge.red { background: rgba(248,113,113,0.2); color: var(--danger); border: 1px solid rgba(248,113,113,0.3); }
+        /* Inside the coloured verdict card the tinted badges lose contrast
+           against their own background, so go solid white-on-dark instead. */
+        .big-total .badge {
+          background: rgba(0,0,0,0.28);
+          border: 1px solid rgba(255,255,255,0.45);
+          color: #fff;
+          font-size: 17px;
+          font-weight: 700;
+          padding: 6px 16px;
+        }
         
         .section-title {
           font-size: 12px;
@@ -1497,8 +1596,8 @@ export default function AshleyDealCalculator() {
         .margin-price-box.current .margin-price-value {
           color: white;
         }
-        .margin-price-label { font-size: 12px; font-weight: 600; color: var(--muted); }
-        .margin-price-value { font-size: 16px; font-weight: 700; margin-top: 3px; color: var(--text); }
+        .margin-price-label { font-size: 15px; font-weight: 700; color: var(--muted); }
+        .margin-price-value { font-size: 19px; font-weight: 700; margin-top: 3px; color: var(--text); }
 
         .custom-margin-row {
           display: flex;
@@ -1508,9 +1607,9 @@ export default function AshleyDealCalculator() {
           flex-wrap: wrap;
         }
         .custom-margin-label {
-          font-size: 13px;
-          font-weight: 600;
-          color: var(--muted);
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--text);
           flex-shrink: 0;
         }
         .custom-margin-field {
@@ -1530,14 +1629,14 @@ export default function AshleyDealCalculator() {
         }
         .custom-margin-input {
           width: 100%;
-          padding: 8px 24px 8px 10px;
+          padding: 12px 26px 12px 12px;
           border: 1px solid var(--line);
           border-radius: var(--radius-sm);
-          font-size: 15px;
+          font-size: 18px;
           font-weight: 600;
           background: var(--bg);
           color: var(--text);
-          min-height: 40px;
+          min-height: var(--tap);
         }
         .custom-margin-input:focus {
           outline: none;
@@ -1545,7 +1644,7 @@ export default function AshleyDealCalculator() {
           box-shadow: 0 0 0 2px var(--crimson-glow);
         }
         .custom-margin-preview {
-          font-size: 14px;
+          font-size: 16px;
           font-weight: 700;
           color: var(--success);
           flex: 1;
@@ -1553,15 +1652,15 @@ export default function AshleyDealCalculator() {
           text-align: right;
         }
         .custom-margin-set {
-          padding: 8px 16px;
+          padding: 12px 20px;
           border-radius: var(--radius-sm);
           border: none;
           background: var(--crimson);
           color: white;
-          font-size: 14px;
+          font-size: 17px;
           font-weight: 700;
           cursor: pointer;
-          min-height: 40px;
+          min-height: var(--tap);
           flex-shrink: 0;
           margin-left: auto;
           transition: all 0.15s;
@@ -1585,7 +1684,7 @@ export default function AshleyDealCalculator() {
         details.result-section summary {
           list-style: none;
           cursor: pointer;
-          font-size: var(--text-sm);
+          font-size: 19px;
           font-weight: 700;
           color: var(--text);
           display: flex;
@@ -1595,7 +1694,7 @@ export default function AshleyDealCalculator() {
         }
         details.result-section summary::-webkit-details-marker { display: none; }
         .summary-chevron {
-          font-size: 12px;
+          font-size: 16px;
           color: var(--muted);
           transition: transform 0.15s;
         }
@@ -2029,32 +2128,52 @@ export default function AshleyDealCalculator() {
           flex-wrap: wrap;
           align-items: center;
         }
+        .settings-section-label {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--muted);
+          margin: 0 0 6px 2px;
+        }
         .setting-chip {
-          padding: 6px 12px;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 2px;
+          padding: 8px 14px;
+          min-height: var(--tap);
           border-radius: var(--radius-sm);
           background: var(--surface);
           border: 1px solid var(--line);
-          color: var(--muted);
-          font-size: var(--text-xs);
-          font-weight: 600;
+          color: var(--text);
           cursor: pointer;
           transition: all 0.15s;
           font-family: var(--font-body);
+          text-align: left;
+        }
+        /* Name of the setting — quiet. */
+        .setting-chip .chip-name {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--muted);
+          line-height: 1;
+        }
+        /* Current value — loud, so state is readable at a glance. */
+        .setting-chip .chip-value {
+          font-size: 17px;
+          font-weight: 700;
+          color: var(--text);
+          line-height: 1.1;
         }
         .setting-chip:hover {
           background: var(--glass);
           border-color: var(--primary);
-          color: var(--text);
         }
         .setting-chip.active {
           background: var(--primary);
-          color: white;
           border-color: var(--primary);
         }
-        .setting-chip.gear {
-          padding: 6px 10px;
-          font-size: 14px;
-        }
+        .setting-chip.active .chip-name { color: rgba(255,255,255,0.85); }
+        .setting-chip.active .chip-value { color: #fff; }
 
         /* Settings modal (full settings panel) */
         .settings-modal-content {
@@ -2083,19 +2202,20 @@ export default function AshleyDealCalculator() {
           flex-wrap: wrap;
         }
         .pill-compact {
-          padding: 8px 12px;
+          padding: 10px 16px;
           border-radius: var(--radius-sm);
           border: 1px solid var(--line);
           background: var(--surface);
-          font-size: var(--text-xs);
+          font-size: 17px;
           font-weight: 600;
-          color: var(--muted);
+          color: var(--text);
           cursor: pointer;
           transition: all 0.15s;
-          min-height: 36px;
+          min-height: var(--tap);
           display: flex;
           align-items: center;
           justify-content: center;
+          font-family: var(--font-body);
         }
         .pill-compact:hover { 
           border-color: var(--crimson);
@@ -2111,11 +2231,34 @@ export default function AshleyDealCalculator() {
         .item-card-compact {
           background: var(--surface-2);
           border: 1px solid var(--line);
-          border-left: 3px solid var(--primary);
+          border-left: 4px solid var(--primary);
           border-radius: var(--radius-sm);
-          padding: 8px;
-          margin-bottom: 8px;
+          padding: 14px;
+          margin-bottom: 14px;
           transition: box-shadow 0.15s;
+        }
+        .item-card-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding-bottom: 10px;
+          margin-bottom: 12px;
+          border-bottom: 1px solid var(--line);
+        }
+        .item-card-title {
+          font-size: 17px;
+          font-weight: 700;
+          color: var(--text);
+        }
+        /* Each numbered step gets breathing room from the one above it. */
+        .item-field-block { margin-top: 16px; }
+        .qty-label {
+          font-size: 15px;
+          font-weight: 700;
+          color: var(--text);
+          margin-bottom: 4px;
+          white-space: nowrap;
         }
         .item-card-compact:focus-within {
           box-shadow: 0 0 0 2px var(--crimson-glow);
@@ -2132,16 +2275,17 @@ export default function AshleyDealCalculator() {
           align-items: center;
         }
         .input-qty-compact {
-          width: 44px;
-          padding: 6px 4px;
+          width: 76px;
+          padding: 12px 4px;
           border: 1px solid var(--line);
           border-radius: var(--radius-sm);
-          font-size: var(--text-md);
-          font-weight: 600;
+          font-size: 20px;
+          font-weight: 700;
           text-align: center;
           background: var(--bg);
           color: var(--text);
-          min-height: 36px;
+          min-height: var(--tap);
+          font-family: var(--font-body);
         }
         .input-qty-compact:focus {
           outline: none;
@@ -2150,15 +2294,18 @@ export default function AshleyDealCalculator() {
         }
         .item-remove-btn {
           background: none;
-          border: none;
+          border: 1px solid var(--line);
           color: var(--muted);
-          font-size: 16px;
+          font-size: 14px;
+          font-weight: 600;
           cursor: pointer;
-          padding: 4px 8px;
+          padding: 8px 12px;
+          min-height: 40px;
           border-radius: var(--radius-sm);
           transition: all 0.15s;
           flex-shrink: 0;
           line-height: 1;
+          font-family: var(--font-body);
         }
         .item-remove-btn:hover {
           color: var(--danger);
@@ -2166,14 +2313,16 @@ export default function AshleyDealCalculator() {
         }
         .input-compact {
           flex: 1;
-          padding: 8px 12px;
+          padding: 12px 14px;
           border: 1px solid var(--line);
           border-radius: var(--radius-sm);
-          font-size: var(--text-md);
-          min-height: 38px;
+          font-size: 20px;
+          font-weight: 600;
+          min-height: var(--tap);
           background: var(--bg);
           color: var(--text);
           min-width: 0;
+          font-family: var(--font-body);
         }
         .input-compact:focus {
           outline: none;
@@ -2207,9 +2356,9 @@ export default function AshleyDealCalculator() {
           right: 6px;
           top: 50%;
           transform: translateY(-50%);
-          font-size: 9px;
+          font-size: 14px;
           font-weight: 700;
-          letter-spacing: 0.5px;
+          letter-spacing: 0.4px;
           text-transform: uppercase;
           color: var(--primary);
           background: var(--crimson-glow);
@@ -2239,16 +2388,31 @@ export default function AshleyDealCalculator() {
         }
         .item-estimate-btn {
           background: var(--glass);
-          border: 1px solid var(--line);
+          border: 1px solid rgba(226,55,68,0.45);
           color: var(--primary);
-          font-size: var(--text-xs);
+          font-size: 14px;
           font-weight: 700;
           cursor: pointer;
-          padding: 6px 8px;
+          padding: 8px 12px;
+          min-height: var(--tap);
           border-radius: var(--radius-sm);
           transition: all 0.15s;
           flex-shrink: 0;
-          line-height: 1;
+          line-height: 1.15;
+          font-family: var(--font-body);
+        }
+        .back-to-presets-btn {
+          margin-top: 10px;
+          background: var(--glass);
+          border: 1px solid var(--line);
+          color: var(--text);
+          font-size: 15px;
+          font-weight: 600;
+          padding: 10px 14px;
+          min-height: var(--tap);
+          border-radius: var(--radius-sm);
+          cursor: pointer;
+          font-family: var(--font-body);
         }
         .item-estimate-btn:hover {
           background: rgba(226,55,68,0.1);
@@ -2315,12 +2479,12 @@ export default function AshleyDealCalculator() {
           border: none;
           border-radius: var(--radius-md);
           color: white;
-          font-size: var(--text-md);
+          font-size: 21px;
           font-weight: 700;
           cursor: pointer;
           font-family: var(--font-body);
           box-shadow: 0 4px 14px var(--crimson-glow), 0 2px 8px rgba(0,0,0,0.3);
-          min-height: 48px;
+          min-height: 60px;
           transition: all 0.15s;
         }
         .calc-btn-enhanced:hover {
@@ -2532,31 +2696,35 @@ export default function AshleyDealCalculator() {
       <div className="container">
         {/* Redesigned Header */}
         <div className="header">
-          <button
-            className="header-reset-btn"
-            onClick={startOver}
-            aria-label="Start Over"
-          >
-            ↺
-          </button>
           <div className="header-content">
             <h1>Deal Depth</h1>
             <p>Ashley HomeStore • Gilroy</p>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          {/* Buttons live on their own row so the labels always fit on a phone */}
+          <div className="header-actions">
+            <button
+              className="header-reset-btn"
+              onClick={startOver}
+              aria-label="Start over — clear everything and begin a new deal"
+            >
+              <span aria-hidden>↺</span>
+              <span className="header-btn-label">Start Over</span>
+            </button>
             <button
               className="header-menu-btn"
               onClick={() => setShowCalculator(true)}
-              aria-label="Open calculator"
+              aria-label="Open the plain calculator for quick math"
             >
-              🧮
+              <span aria-hidden>🧮</span>
+              <span className="header-btn-label">Calculator</span>
             </button>
             <button
               className="header-menu-btn"
               onClick={() => setMenuOpen(!menuOpen)}
-              aria-label="Menu"
+              aria-label="Menu — past deals and help"
             >
-              ⋮
+              <span aria-hidden>☰</span>
+              <span className="header-btn-label">Menu</span>
             </button>
           </div>
           {menuOpen && (
@@ -2577,34 +2745,63 @@ export default function AshleyDealCalculator() {
           )}
         </div>
 
-        {/* Settings Chip Bar */}
+        {/* Settings Chip Bar — every chip states its setting AND its current
+            value, so nothing has to be remembered or guessed. */}
+        <div className="settings-section-label">
+          Deal settings — tap any button to change it
+        </div>
         <div className="settings-bar">
-          <button className="setting-chip" onClick={cycleNextSalePercent}>Sale {salePercent}%</button>
+          <button
+            className="setting-chip"
+            onClick={cycleNextSalePercent}
+            aria-label={`Sale discount is ${salePercent} percent off. Tap to change.`}
+          >
+            <span className="chip-name">Sale discount</span>
+            <span className="chip-value">{salePercent}% off</span>
+          </button>
           <button
             className={`setting-chip ${priceType === 'tag' ? 'active' : ''}`}
             aria-pressed={priceType === 'tag'}
             onClick={() => setPriceType(priceType === 'sale' ? 'tag' : 'sale')}
+            aria-label={`Prices you type in are ${priceType === 'tag' ? 'retail tag' : 'sale'} prices. Tap to switch.`}
           >
-            {priceType === 'tag' ? 'Retail' : 'Sale'} Price
+            <span className="chip-name">I'm typing in</span>
+            <span className="chip-value">{priceType === 'tag' ? 'Retail prices' : 'Sale prices'}</span>
           </button>
           <button
             className={`setting-chip ${noTaxPromo ? 'active' : ''}`}
             aria-pressed={noTaxPromo}
             onClick={() => setNoTaxPromo(!noTaxPromo)}
+            aria-label={`No-tax promo is ${noTaxPromo ? 'on' : 'off'}. Tap to turn it ${noTaxPromo ? 'off' : 'on'}.`}
           >
-            No-Tax
+            <span className="chip-name">No-tax promo</span>
+            <span className="chip-value">{noTaxPromo ? 'ON' : 'OFF'}</span>
           </button>
-          <button className="setting-chip" onClick={cycleNextDelivery}>
-            Del ${delivery}
+          <button
+            className="setting-chip"
+            onClick={cycleNextDelivery}
+            aria-label={`Delivery fee is ${delivery} dollars. Tap to change.`}
+          >
+            <span className="chip-name">Delivery fee</span>
+            <span className="chip-value">${delivery}</span>
           </button>
           <button
             className={`setting-chip ${includeProtection ? 'active' : ''}`}
             aria-pressed={includeProtection}
             onClick={() => setIncludeProtection(!includeProtection)}
+            aria-label={`Protection plan is ${includeProtection ? 'included' : 'not included'}. Tap to turn it ${includeProtection ? 'off' : 'on'}.`}
           >
-            Protection {includeProtection ? 'ON' : 'OFF'}
+            <span className="chip-name">Protection plan</span>
+            <span className="chip-value">{includeProtection ? 'ON' : 'OFF'}</span>
           </button>
-          <button className="setting-chip gear" onClick={() => setShowSettingsModal(true)}>⚙</button>
+          <button
+            className="setting-chip gear"
+            onClick={() => setShowSettingsModal(true)}
+            aria-label="Open all deal settings"
+          >
+            <span className="chip-name">See all</span>
+            <span className="chip-value">⚙ Settings</span>
+          </button>
         </div>
 
         {/* Settings Modal */}
@@ -2632,7 +2829,7 @@ export default function AshleyDealCalculator() {
                   <label>No-Tax Promo</label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div className={`toggle-compact ${noTaxPromo ? 'on' : ''}`} role="switch" aria-checked={noTaxPromo} aria-label="No-Tax Promo" tabIndex={0} onClick={() => setNoTaxPromo(!noTaxPromo)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setNoTaxPromo(!noTaxPromo); }}} />
-                    <span style={{ fontSize: 11, color: noTaxPromo ? colors.success.main : colors.text.secondary }}>{noTaxPromo ? 'ON' : 'OFF'}</span>
+                    <span style={{ fontSize: 15, color: noTaxPromo ? colors.success.main : colors.text.secondary }}>{noTaxPromo ? 'ON' : 'OFF'}</span>
                   </div>
                 </div>
                 <div className="setting-group">
@@ -2660,12 +2857,12 @@ export default function AshleyDealCalculator() {
                   <label>Protection Plan</label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div className={`toggle-compact ${includeProtection ? 'on' : ''}`} role="switch" aria-checked={includeProtection} aria-label="Protection Plan" tabIndex={0} onClick={() => setIncludeProtection(!includeProtection)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIncludeProtection(!includeProtection); }}} />
-                    <span style={{ fontSize: 11, color: includeProtection ? colors.success.main : colors.text.secondary }}>
+                    <span style={{ fontSize: 15, color: includeProtection ? colors.success.main : colors.text.secondary }}>
                       {includeProtection ? `ON — ${formatMoney(calculateProtectionPlan(subtotal || 0))} added` : 'OFF'}
                     </span>
                   </div>
                   {includeProtection && (
-                    <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>
+                    <div style={{ fontSize: 15, color: 'var(--muted)', marginTop: 4 }}>
                       $150 (0–1k) · $200 (1–2k) · $250 (2–3k) · $300 (3–4k) · $350 (4–5k) · $500 (5–6k) · +$50/1k after
                     </div>
                   )}
@@ -2677,13 +2874,40 @@ export default function AshleyDealCalculator() {
         )}
 
 
+        {/* First-run instructions — disappear once a price is entered, so
+            regulars aren't nagged but a newcomer is never left guessing. */}
+        {items.every(it => !String(it.price).trim() && !String(it.landingCost).trim()) && (
+          <div className="how-to-strip">
+            <strong>Start here:</strong> fill in the 3 numbered boxes below, then tap
+            the big red button at the bottom.
+          </div>
+        )}
+
         {/* Items */}
-        <div className="card" style={{ padding: 8 }}>
+        <div className="card" style={{ padding: 10 }}>
           {errors.price && <div className="error-text" style={{ paddingLeft: 4 }}>{errors.price}</div>}
           {errors.landingCost && <div className="error-text" style={{ paddingLeft: 4 }}>{errors.landingCost}</div>}
 
-          {items.map((item) => (
+          {items.map((item, itemIndex) => (
             <div key={item.id} className="item-card-compact" data-item>
+              {/* Card title bar — names the item and holds Remove, so the
+                  bare "×" no longer floats next to the cost field. */}
+              <div className="item-card-head">
+                <span className="item-card-title">
+                  Item {itemIndex + 1}{item.name ? `: ${item.name}` : ''}
+                </span>
+                {items.length > 1 && (
+                  <button
+                    className="item-remove-btn"
+                    onClick={() => removeItem(item.id)}
+                    aria-label={`Remove item ${itemIndex + 1}`}
+                  >
+                    ✕ Remove
+                  </button>
+                )}
+              </div>
+
+              <label className="field-label">1. What are you selling?</label>
               {/* Row 1: Type pills + Price + Qty */}
               <div className="item-row-top">
                 {showCustomInput[item.id] ? (
@@ -2700,15 +2924,15 @@ export default function AshleyDealCalculator() {
                   <div style={{ flex: 1 }}>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: expandedMore[item.id] ? 6 : 0 }}>
                       {TOP_ITEM_PRESETS.map(p => (
-                        <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
+                        <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }}>{p}</button>
                       ))}
-                      <button className={`pill-compact${expandedMore[item.id] ? ' selected' : ''}`} onClick={() => setExpandedMore({ ...expandedMore, [item.id]: !expandedMore[item.id] })} style={{ fontSize: 11 }}>{expandedMore[item.id] ? 'Less' : 'More'}</button>
-                      <button className="pill-compact" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: true }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>Custom</button>
+                      <button className={`pill-compact${expandedMore[item.id] ? ' selected' : ''}`} onClick={() => setExpandedMore({ ...expandedMore, [item.id]: !expandedMore[item.id] })}>{expandedMore[item.id] ? 'Less' : 'More'}</button>
+                      <button className="pill-compact" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: true }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }}>Custom</button>
                     </div>
                     {expandedMore[item.id] && (
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {MORE_ITEM_PRESETS.map(p => (
-                          <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedMore({ ...expandedMore, [item.id]: false }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }} style={{ fontSize: 11 }}>{p}</button>
+                          <button key={p} className={`pill-compact${item.name === p ? ' selected' : ''}`} onClick={() => { updateItem(item.id, 'name', p); setExpandedMore({ ...expandedMore, [item.id]: false }); setExpandedItemPresets({ ...expandedItemPresets, [item.id]: false }); }}>{p}</button>
                         ))}
                       </div>
                     )}
@@ -2717,58 +2941,91 @@ export default function AshleyDealCalculator() {
                   <button
                     className="pill-compact"
                     onClick={() => setExpandedItemPresets({ ...expandedItemPresets, [item.id]: true })}
-                    style={{ fontSize: 12, flex: 1, justifyContent: 'flex-start', gap: 6 }}
+                    style={{ flex: 1, justifyContent: 'flex-start', gap: 6 }}
                   >
-                    {item.name || 'Select type...'}
+                    {item.name || 'Tap here to pick an item type'}
                   </button>
                 )}
-                <div className={`money-wrap${item.priceAuto && String(item.price).trim() !== '' ? ' has-auto' : ''}`} style={{ width: 110, flex: 'none' }}>
-                  <input
-                    type="text"
-                    className={`input-compact ${errors.price ? 'input-error' : ''}`}
-                    placeholder={noTaxPromo ? 'Price+tax' : 'Price'}
-                    value={item.price}
-                    onChange={(e) => updateItemPrice(item.id, e.target.value)}
-                    inputMode="decimal"
-                  />
-                  {item.priceAuto && String(item.price).trim() !== '' && (
-                    <span className="auto-tag" title="Auto-estimated from landing — edit to override">auto</span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 2 }}>Qty</span>
-                  <input
-                    type="number"
-                    className="input-qty-compact"
-                    value={item.qty}
-                    onChange={(e) => updateItem(item.id, 'qty', e.target.value)}
-                    min="1"
-                    placeholder="1"
-                    title="Quantity"
-                  />
-                </div>
               </div>
-              {/* Row 2: Landing + Estimate + Remove + Back */}
-              <div className="item-row-bottom">
-                <div className={`money-wrap${item.landingAuto && String(item.landingCost).trim() !== '' ? ' has-auto' : ''}`}>
-                  <input
-                    type="text"
-                    className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
-                    placeholder="Landing"
-                    value={item.landingCost}
-                    onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
-                    inputMode="decimal"
-                  />
-                  {item.landingAuto && String(item.landingCost).trim() !== '' && (
-                    <span className="auto-tag" title="Auto-estimated from price — edit to override">auto</span>
-                  )}
+
+              {/* Step 2: price + quantity, each with its own visible label */}
+              <div className="item-field-block">
+                <label className="field-label" htmlFor={`price-${item.id}`}>
+                  2. {priceType === 'tag' ? 'Retail tag price' : 'Sale price'} — what the customer pays
+                </label>
+                <div className="item-row-top">
+                  <div className={`money-wrap${item.priceAuto && String(item.price).trim() !== '' ? ' has-auto' : ''}`} style={{ flex: 1 }}>
+                    <input
+                      id={`price-${item.id}`}
+                      type="text"
+                      className={`input-compact ${errors.price ? 'input-error' : ''}`}
+                      placeholder="0.00"
+                      value={item.price}
+                      onChange={(e) => updateItemPrice(item.id, e.target.value)}
+                      inputMode="decimal"
+                    />
+                    {item.priceAuto && String(item.price).trim() !== '' && (
+                      <span className="auto-tag" title="We filled this in from the cost. Type over it to change it.">auto</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+                    <label className="qty-label" htmlFor={`qty-${item.id}`}>How many?</label>
+                    <input
+                      id={`qty-${item.id}`}
+                      type="number"
+                      className="input-qty-compact"
+                      value={item.qty}
+                      onChange={(e) => updateItem(item.id, 'qty', e.target.value)}
+                      min="1"
+                      placeholder="1"
+                    />
+                  </div>
                 </div>
-                <button className="item-estimate-btn" onClick={() => estimateLandingCost(item.id)} title="Estimate landing cost (price ÷ 3.3)">Est.</button>
-                {items.length > 1 && (
-                  <button className="item-remove-btn" onClick={() => removeItem(item.id)} title="Remove item">×</button>
-                )}
+                <span className="field-hint">
+                  {noTaxPromo
+                    ? 'No-tax promo is on, so type the price with tax already included.'
+                    : 'Type the price before tax. Tax gets added for you.'}
+                </span>
+              </div>
+              {/* Step 3: landing cost. "Landing" is trade jargon, so the label
+                  says what it means and the button says what it will do. */}
+              <div className="item-field-block">
+                <label className="field-label" htmlFor={`landing-${item.id}`}>
+                  3. Landing cost — what the store paid for it
+                </label>
+                <div className="item-row-bottom">
+                  <div className={`money-wrap${item.landingAuto && String(item.landingCost).trim() !== '' ? ' has-auto' : ''}`}>
+                    <input
+                      id={`landing-${item.id}`}
+                      type="text"
+                      className={`input-compact ${errors.landingCost ? 'input-error' : ''}`}
+                      placeholder="0.00"
+                      value={item.landingCost}
+                      onChange={(e) => updateItem(item.id, 'landingCost', e.target.value)}
+                      inputMode="decimal"
+                    />
+                    {item.landingAuto && String(item.landingCost).trim() !== '' && (
+                      <span className="auto-tag" title="We filled this in from the price. Type over it to change it.">auto</span>
+                    )}
+                  </div>
+                  <button
+                    className="item-estimate-btn"
+                    onClick={() => estimateLandingCost(item.id)}
+                    aria-label="Estimate the landing cost for me, using price divided by 3.3"
+                  >
+                    Estimate<br />for me
+                  </button>
+                </div>
+                <span className="field-hint">
+                  Don't know it? Tap <strong>Estimate for me</strong> and we'll work it out from the price.
+                </span>
                 {showCustomInput[item.id] && (
-                  <button className="item-remove-btn" onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: false }); if (!item.name) updateItem(item.id, 'name', ''); }} title="Back to presets" style={{ fontSize: 12 }}>↩</button>
+                  <button
+                    className="back-to-presets-btn"
+                    onClick={() => { setShowCustomInput({ ...showCustomInput, [item.id]: false }); if (!item.name) updateItem(item.id, 'name', ''); }}
+                  >
+                    ↩ Back to the item list
+                  </button>
                 )}
               </div>
               {estimateFeedback[item.id] && (
@@ -2784,7 +3041,7 @@ export default function AshleyDealCalculator() {
             </div>
           ))}
           
-          <button className="add-item-btn" onClick={addItem}>+ Add Item</button>
+          <button className="add-item-btn" onClick={addItem}>+ Add Another Item</button>
         </div>
 
       </div>
@@ -2799,7 +3056,7 @@ export default function AshleyDealCalculator() {
             calculate();
           }}
         >
-          Calculate
+          Calculate This Deal
         </button>
       </div>
 
@@ -2826,12 +3083,13 @@ export default function AshleyDealCalculator() {
             <div className="sheet-content">
 
                 {overallMargin !== null ? (
-                  <div className="big-total">
-                    <div className="big-total-label">Overall Margin</div>
+                  <div className={`big-total verdict-${getMarginVerdict(overallMargin)}`}>
+                    <div className="big-total-label">Your profit on this deal</div>
                     <div className="big-total-amount">{overallMargin.toFixed(1)}%</div>
                     <div className={`badge ${overallMargin >= 50 ? 'green' : overallMargin >= 47 ? 'orange' : 'red'}`}>
                       {getMarginLabel(overallMargin)}
                     </div>
+                    <div className="verdict-sentence">{getMarginSentence(overallMargin)}</div>
                     {subtotal > 0 && (
                       <div className="big-total-sub">
                         {noTaxPromo ? 'Quote: ' + formatMoney(calculatedItems.reduce((sum, item) => sum + (item.quotePrice * item.qty), 0)) : 'Invoice: ' + formatMoney(subtotal)}
@@ -2840,16 +3098,24 @@ export default function AshleyDealCalculator() {
                   </div>
                 ) : (
                   <div className="big-total">
-                    <div className="big-total-label">Margin Check</div>
-                    <div className="big-total-amount" style={{ fontSize: '20px', color: 'rgba(255,255,255,0.6)' }}>Enter landing cost</div>
-                    <div className="big-total-sub">Add landing cost to see margin</div>
+                    <div className="big-total-label">Profit on this deal</div>
+                    <div className="big-total-amount" style={{ fontSize: '24px', color: 'rgba(255,255,255,0.85)' }}>Not known yet</div>
+                    <div className="verdict-sentence">
+                      Go back and fill in box 3, the landing cost, and we can work out your profit.
+                    </div>
                   </div>
                 )}
 
                 {/* Set entire order to a margin target */}
                 {totalLandingCost > 0 && (
                   <div style={{ background: colors.primary[50], border: `1px solid ${colors.primary[200]}`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
-                    <div style={{ fontSize: '14px', fontWeight: 700, color: colors.primary[400], marginBottom: '8px' }}>Set Entire Order to Margin</div>
+                    <div style={{ fontSize: '19px', fontWeight: 700, color: colors.text.primary, marginBottom: '4px' }}>
+                      Need to come down on price?
+                    </div>
+                    <div style={{ fontSize: '15px', color: colors.text.secondary, marginBottom: '10px', lineHeight: 1.4 }}>
+                      Tap a profit level below and every price is rewritten to match it.
+                      50% is the target; 47% is as low as you may go.
+                    </div>
                     <div className="margin-prices">
                       {MARGIN_PRESETS.map(target => (
                         <div
@@ -2870,7 +3136,7 @@ export default function AshleyDealCalculator() {
                           type="text"
                           inputMode="decimal"
                           className="custom-margin-input"
-                          placeholder="%"
+                          placeholder="50"
                           value={orderCustomMargin}
                           onChange={(e) => setOrderCustomMargin(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter') applyOrderCustomMargin(); }}
@@ -2884,7 +3150,7 @@ export default function AshleyDealCalculator() {
                       )}
                       <button className="custom-margin-set" onClick={applyOrderCustomMargin} disabled={clampMargin(orderCustomMargin) == null}>Set</button>
                     </div>
-                    <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '16px', color: colors.text.secondary, marginTop: '6px', textAlign: 'center' }}>
                       {items.some(i => parseMoney(i.landingCost) > 0 && i.selectedMargin != null)
                         ? 'Tap the highlighted margin again to restore original prices'
                         : (noTaxPromo ? 'Prices shown include tax' : 'Invoice prices shown')}
@@ -2894,7 +3160,7 @@ export default function AshleyDealCalculator() {
 
                 {overallMargin !== null && overallMargin < 47 && totalLandingCost > 0 && (
                   <div style={{ background: colors.error.light, border: `1px solid ${colors.error.main}50`, borderRadius: '10px', padding: '12px 14px', marginBottom: '12px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 700, color: colors.error.main, marginBottom: '6px' }}>Counter needed — below 47% floor</div>
+                    <div style={{ fontSize: '16px', fontWeight: 700, color: colors.error.main, marginBottom: '6px' }}>Counter needed — below 47% floor</div>
                     <div style={{ fontSize: '14px', color: colors.text.primary }}>
                       Min invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 47))}</strong> for 47%
                     </div>
@@ -2902,7 +3168,7 @@ export default function AshleyDealCalculator() {
                       Target invoice: <strong>{formatMoney(priceForMargin(totalLandingCost, 50))}</strong> for 50%
                     </div>
                     {noTaxPromo && (
-                      <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '4px' }}>
+                      <div style={{ fontSize: '16px', color: colors.text.secondary, marginTop: '4px' }}>
                         Customer quote: <strong>{formatMoney(priceForMargin(totalLandingCost, 47) * (1 + taxRate))}</strong> min • <strong>{formatMoney(priceForMargin(totalLandingCost, 50) * (1 + taxRate))}</strong> target
                       </div>
                     )}
@@ -2911,7 +3177,7 @@ export default function AshleyDealCalculator() {
 
                 <details className="result-section" open>
                   <summary>
-                    Margin by Item
+                    Profit on each item
                     <span className="summary-chevron">▼</span>
                   </summary>
                   <div style={{ marginTop: '8px' }}>
@@ -2954,7 +3220,7 @@ export default function AshleyDealCalculator() {
                             Landing: {formatMoney(item.landingCost)} • <em>Tap a margin target below</em>
                           </div>
                         )}
-                        <div style={{ fontSize: '13px', color: colors.primary[400], marginTop: '8px', marginBottom: '4px', fontWeight: 600 }}>
+                        <div style={{ fontSize: '16px', color: colors.primary[400], marginTop: '8px', marginBottom: '4px', fontWeight: 600 }}>
                           {item.selectedMargin
                             ? 'Tap again to restore original price:'
                             : (noTaxPromo ? 'Tap to set price (shows quote w/ tax):' : 'Tap to set sale price:')}
@@ -3000,7 +3266,7 @@ export default function AshleyDealCalculator() {
                               type="text"
                               inputMode="decimal"
                               className="custom-margin-input"
-                              placeholder="%"
+                              placeholder="50"
                               value={itemCustomMargin[item.id] ?? ''}
                               onChange={(e) => setItemCustomMargin(prev => ({ ...prev, [item.id]: e.target.value }))}
                               onKeyDown={(e) => { if (e.key === 'Enter') applyItemCustomMargin(item.id); }}
@@ -3015,7 +3281,7 @@ export default function AshleyDealCalculator() {
                           <button className="custom-margin-set" onClick={() => applyItemCustomMargin(item.id)} disabled={clampMargin(itemCustomMargin[item.id]) == null}>Set</button>
                         </div>
                         {noTaxPromo && item.margin !== null && (
-                          <div style={{ fontSize: '13px', color: colors.text.secondary, marginTop: '8px', background: colors.warning.light, border: `1px solid ${colors.warning.main}40`, padding: '8px', borderRadius: '6px' }}>
+                          <div style={{ fontSize: '16px', color: colors.text.secondary, marginTop: '8px', background: colors.warning.light, border: `1px solid ${colors.warning.main}40`, padding: '8px', borderRadius: '6px' }}>
                             📝 <strong>Invoice:</strong> Write {formatMoney(item.invoicePrice)} for {item.margin.toFixed(0)}% margin → customer pays {formatMoney(item.quotePrice)}
                           </div>
                         )}
@@ -3028,11 +3294,11 @@ export default function AshleyDealCalculator() {
                 {subtotal > 0 && regularTotal > 0 && savingsVsRegular > 0.005 && (
                   <details className="result-section" open>
                     <summary>
-                      Your Savings
+                      What the customer saves
                       <span className="summary-chevron">▼</span>
                     </summary>
                     <div style={{ overflowX: 'auto', margin: '8px -8px 0' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '16px' }}>
                         <thead>
                           <tr>
                             <th style={{ padding: '6px 6px', textAlign: 'left', fontWeight: 600, color: colors.text.secondary, borderBottom: `1px solid ${colors.primary[200]}` }}>Item</th>
@@ -3063,7 +3329,7 @@ export default function AshleyDealCalculator() {
                       <span style={{ fontWeight: 700, color: colors.success.main, fontSize: '16px' }}>You save {formatMoney(taxAdj(savingsVsRegular))} off regular!</span>
                     </div>
                     {noTaxPromo && (
-                      <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
+                      <div style={{ fontSize: '15px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
                         No tax — prices shown include tax
                       </div>
                     )}
@@ -3074,7 +3340,7 @@ export default function AshleyDealCalculator() {
                 {subtotal > 0 && (
                   <details className="result-section" open>
                     <summary>
-                      Customer Total
+                      What the customer pays
                       <span className="summary-chevron">▼</span>
                     </summary>
                     <div style={{ marginTop: '8px' }}>
@@ -3111,7 +3377,7 @@ export default function AshleyDealCalculator() {
                         <span className="breakdown-value" style={{ fontSize: '18px' }}>{formatMoney(customerTotal)}</span>
                       </div>
                       {noTaxPromo && (
-                        <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
+                        <div style={{ fontSize: '15px', color: colors.text.secondary, marginTop: '8px', fontStyle: 'italic' }}>
                           Tax included in prices — customer pays one simple total
                         </div>
                       )}
@@ -3121,7 +3387,7 @@ export default function AshleyDealCalculator() {
 
                 {subtotal > 0 && (
                   <div style={{ background: colors.success.light, borderRadius: '8px', padding: '12px', marginTop: '12px', border: `1px solid ${colors.success.main}40` }}>
-                    <div style={{ fontSize: '12px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>Tell Customer:</div>
+                    <div style={{ fontSize: '16px', color: colors.success.main, fontWeight: 600, marginBottom: '4px' }}>Tell Customer:</div>
                     <div style={{ fontSize: '15px', color: colors.text.primary, fontWeight: 600 }}>
                       {noTaxPromo
                         ? `"Your total is ${formatMoney(customerTotal)} — that includes everything!"`
@@ -3253,11 +3519,17 @@ export default function AshleyDealCalculator() {
             <div className="help-section">
               <h3>How to Use</h3>
               <ul>
-                <li>Enter sale price</li>
-                <li>Enter landing cost</li>
-                <li>Green = ok. Orange = maybe. Red = no.</li>
+                <li>Box 1: pick what you're selling.</li>
+                <li>Box 2: type the price the customer pays.</li>
+                <li>Box 3: type the landing cost — what the store paid.
+                    Don't know it? Tap "Estimate for me".</li>
+                <li>Tap the big red "Calculate This Deal" button.</li>
               </ul>
-              <p style={{ marginTop: '6px' }}><strong>Rule:</strong> Below 47% = call manager</p>
+              <p style={{ marginTop: '6px' }}>
+                <strong>Reading the result:</strong> green means the deal is good to go,
+                amber means it's thin and a manager should sign off, red means it's
+                below the 47% floor and a manager must approve it.
+              </p>
             </div>
 
             <div className="help-section">
@@ -3286,7 +3558,15 @@ export default function AshleyDealCalculator() {
               </div>
               <div className="faq-item">
                 <div className="faq-q">Q: What is landing cost?</div>
-                <div className="faq-a">A: Your cost from the system.</div>
+                <div className="faq-a">A: What the store paid for the item — your cost from the system.
+                  It's the number the profit percentage is worked out from. If you don't have it,
+                  tap "Estimate for me" and we'll work it out from the price.</div>
+              </div>
+              <div className="faq-item">
+                <div className="faq-q">Q: What is the AI coach for?</div>
+                <div className="faq-a">A: Tap "Ask Coach" at the bottom of the screen. You can talk
+                  to it or type. Describe a deal in your own words and it will work out the numbers
+                  and fill in the calculator for you.</div>
               </div>
               <div className="faq-item">
                 <div className="faq-q">Q: What does No-Tax mean?</div>
@@ -3389,7 +3669,7 @@ export default function AshleyDealCalculator() {
         <div className="help-overlay" onClick={() => setShowHistory(false)}>
           <div className="help-modal" onClick={e => e.stopPropagation()}>
             <h2 style={{ marginBottom: '4px' }}>Recent Deals</h2>
-            <p style={{ fontSize: '12px', color: colors.text.secondary, marginBottom: '16px' }}>Tap a deal to restore it.</p>
+            <p style={{ fontSize: '16px', color: colors.text.secondary, marginBottom: '16px' }}>Tap a deal to restore it.</p>
             {history.length === 0 ? (
               <p style={{ fontSize: '14px', color: colors.text.secondary, textAlign: 'center', padding: '24px 0' }}>
                 No history yet. Calculate a deal to save it here.
@@ -3410,12 +3690,12 @@ export default function AshleyDealCalculator() {
                   }}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: colors.text.primary }}>
+                    <span style={{ fontSize: '16px', fontWeight: 700, color: colors.text.primary }}>
                       📊 Deal
                     </span>
-                    <span style={{ fontSize: '11px', color: colors.text.secondary }}>{formatRelativeTime(entry.ts)}</span>
+                    <span style={{ fontSize: '15px', color: colors.text.secondary }}>{formatRelativeTime(entry.ts)}</span>
                   </div>
-                  <div style={{ fontSize: '12px', color: colors.text.secondary }}>
+                  <div style={{ fontSize: '16px', color: colors.text.secondary }}>
                     {entry.label || 'Unnamed deal'} • {entry.itemCount} item{entry.itemCount !== 1 ? 's' : ''}
                     {entry.noTaxPromo ? ' • No-Tax' : ''}{Number(entry.delivery) > 0 ? ` • $${entry.delivery} delivery` : ''}
                   </div>
@@ -3425,7 +3705,7 @@ export default function AshleyDealCalculator() {
                     const totalInvoice = entryItems.reduce((s, i) => s + parseMoney(i.price) * (parseInt(i.qty) || 1), 0);
                     const margin = totalInvoice > 0 && totalLanding > 0 ? calculateMargin(totalInvoice, totalLanding) : null;
                     return (totalInvoice > 0 || margin !== null) ? (
-                      <div style={{ fontSize: '11px', color: colors.text.secondary, marginTop: 4, display: 'flex', gap: 8 }}>
+                      <div style={{ fontSize: '15px', color: colors.text.secondary, marginTop: 4, display: 'flex', gap: 8 }}>
                         {totalInvoice > 0 && <span>Total: {formatMoney(totalInvoice)}</span>}
                         {margin !== null && <span style={{ color: getMarginColor(margin), fontWeight: 600 }}>Margin: {margin.toFixed(1)}%</span>}
                       </div>
@@ -3440,7 +3720,7 @@ export default function AshleyDealCalculator() {
                   setHistory([]);
                   try { localStorage.removeItem(HISTORY_KEY); } catch {}
                 }}
-                style={{ background: 'none', border: 'none', color: colors.error.main, fontSize: '13px', cursor: 'pointer', padding: '8px 0', width: '100%', textAlign: 'center' }}
+                style={{ background: 'none', border: 'none', color: colors.error.main, fontSize: '16px', cursor: 'pointer', padding: '8px 0', width: '100%', textAlign: 'center' }}
               >
                 Clear history
               </button>
@@ -3482,7 +3762,13 @@ export default function AshleyDealCalculator() {
         />
       )}
 
-      <CoachBubble calcSnapshot={calcSnapshot} calcRefs={calcRefs} />
+      {/* Hidden while a full-screen sheet is up, so it can't sit on top of
+          the numbers the user is trying to read. */}
+      <CoachBubble
+        calcSnapshot={calcSnapshot}
+        calcRefs={calcRefs}
+        hidden={showResults || showInvoice || showHelp || showHistory || showCalculator}
+      />
     </div>
   );
 }
