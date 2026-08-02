@@ -21,10 +21,14 @@ npm run preview  # Preview production build
 - `src/main.jsx` - Entry point that mounts the React app; registers the service worker (prod only)
 - `index.html` - HTML shell (PWA manifest link + iOS home-screen meta tags)
 
-**Standalone calculator (AI-free):**
-- `src/Calculator.jsx` - "Paper tape" calculator: number pad, domain shortcuts (+Tax, −%, ÷3.3 landing, OTD back-out, Margin %), live step-by-step work, copy-tape, Use-as-price/landing, plus typed and voice natural-math input
-- `src/calcEngine.js` - Deterministic parser + evaluator. Turns spoken/typed math ("twelve hundred minus 15% plus tax") into structured actions and evaluates with adding-machine semantics. No `eval()`, no AI, fully offline. Reused by the tap buttons too.
+**Standalone calculator (AI-free core):**
+- `src/Calculator.jsx` - "Paper tape" calculator: number pad, domain shortcuts (+Tax, −%, ÷3.3 landing, OTD back-out, Margin %), live step-by-step work, copy-tape, Use-as-price/landing, plus typed and voice natural-math input. Speech uses Web Speech where supported; on iOS Safari it falls back to the keyboard's dictation mic. When the offline parser fails, a "✨ smart parse" fallback calls Gemini.
+- `src/calcEngine.js` - Deterministic parser + evaluator. Turns spoken/typed math ("twelve hundred minus 15% plus tax", "couch 1001, loveseat 500") into structured actions and evaluates with adding-machine semantics. Forgiving (ignores non-math words, sums line items, quantity×price via `qty`). No `eval()`, no AI, fully offline. `sanitizeActions`/`describe` support the smart-parse path; the tap buttons reuse `evaluate` too.
 - `tests/unit/calcEngine.test.mjs` - Node unit tests for the engine (`node tests/unit/calcEngine.test.mjs`)
+
+**Smart-parse fallback (optional, LLM parses / engine computes — the PAL pattern):**
+- `netlify/functions/parse-math.js` - Gemini proxy that translates messy natural language into calculator ACTIONS via structured output. It never does arithmetic; the client runs the actions through `evaluate()` so the math stays exact and auditable.
+- `src/mathParseClient.js` - Fetch helper for the parse-math function (never throws; returns null on failure).
 
 **PWA:**
 - `public/manifest.webmanifest` - Installable app metadata (standalone, portrait, crimson theme)

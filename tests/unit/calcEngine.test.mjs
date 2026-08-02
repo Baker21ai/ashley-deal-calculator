@@ -1,4 +1,4 @@
-import { interpret, evaluate, _internals } from '../../src/calcEngine.js';
+import { interpret, evaluate, sanitizeActions, describe, _internals } from '../../src/calcEngine.js';
 const { wordsToNumber, normalizeText, parse } = _internals;
 
 let pass = 0, fail = 0;
@@ -79,6 +79,27 @@ const e = evaluate([
 ], cfg);
 t('button path: 600 -> 50% margin -> +tax', e.result, 1200 * 1.09125);
 t('button path ok', e.ok, true);
+
+// --- qty support (used by the LLM smart-parse path; engine does the multiply) ---
+t('qty on start', evaluate([{ kind: 'start', value: 200, qty: 2 }], cfg).result, 400);
+t('qty on add', evaluate([{ kind: 'start', value: 750 }, { kind: 'add', value: 200, qty: 2 }], cfg).result, 1150);
+t('qty default 1', evaluate([{ kind: 'start', value: 500 }], cfg).result, 500);
+
+// --- sanitizeActions (untrusted LLM output) ---
+t('sanitize drops unknown kind', sanitizeActions([{ kind: 'start', value: 100 }, { kind: 'hack', value: 9 }]).length, 1);
+t('sanitize coerces string numbers', sanitizeActions([{ kind: 'start', value: '100' }, { kind: 'add', value: '50' }])[1].value, 50);
+t('sanitize drops non-numeric', sanitizeActions([{ kind: 'start', value: 100 }, { kind: 'add', value: 'abc' }]).length, 1);
+t('sanitize forces first to start', sanitizeActions([{ kind: 'add', value: 100 }, { kind: 'add', value: 50 }])[0].kind, 'start');
+t('sanitize keeps qty', sanitizeActions([{ kind: 'start', value: 200, qty: 3 }])[0].qty, 3);
+t('sanitize non-array', sanitizeActions('nope').length, 0);
+{
+  const clean = sanitizeActions([{ kind: 'start', value: 1001, label: 'couch' }, { kind: 'add', value: 500, label: 'couch' }]);
+  t('sanitize->evaluate exact math', evaluate(clean, cfg).result, 1501);
+}
+
+// --- describe (echo string) ---
+t('describe basic', describe([{ kind: 'start', value: 1200 }, { kind: 'subPct', pct: 15 }, { kind: 'addTax' }]), '1200 − 15% + tax');
+t('describe qty + label', describe([{ kind: 'start', value: 200, qty: 2, label: 'chairs' }]), '2 × chairs 200');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

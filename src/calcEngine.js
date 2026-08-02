@@ -46,9 +46,11 @@ export function evaluate(actions, config = {}) {
   for (const a of actions) {
     if (!started) {
       if (a.kind !== 'start') return { ok: false, error: 'Start with a number.', steps, result: 0 };
-      total = a.value;
+      const q = Number.isFinite(a.qty) && a.qty > 0 ? a.qty : 1;
+      total = a.value * q;
       started = true;
-      steps.push({ label: a.label ? cap(a.label) : 'Start', total });
+      const startLabel = a.label ? `${cap(a.label)}${q > 1 ? ` ×${q}` : ''}` : 'Start';
+      steps.push({ label: startLabel, total });
       continue;
     }
 
@@ -59,12 +61,18 @@ export function evaluate(actions, config = {}) {
     switch (a.kind) {
       case 'start':
         return { ok: false, error: 'Two starts — internal error.', steps, result: total };
-      case 'add':
-        total = prev + a.value; delta = a.value;
-        label = a.label ? `+ ${cap(a.label)} (${fmtMoney(a.value)})` : `+ ${fmtMoney(a.value)}`; break;
-      case 'sub':
-        total = prev - a.value; delta = -a.value;
-        label = a.label ? `− ${cap(a.label)} (${fmtMoney(a.value)})` : `− ${fmtMoney(a.value)}`; break;
+      case 'add': {
+        const q = Number.isFinite(a.qty) && a.qty > 0 ? a.qty : 1;
+        const amt = a.value * q; total = prev + amt; delta = amt;
+        const q1 = q > 1 ? ` ×${q}` : '';
+        label = a.label ? `+ ${cap(a.label)}${q1} (${fmtMoney(amt)})` : `+ ${fmtMoney(amt)}`; break;
+      }
+      case 'sub': {
+        const q = Number.isFinite(a.qty) && a.qty > 0 ? a.qty : 1;
+        const amt = a.value * q; total = prev - amt; delta = -amt;
+        const q1 = q > 1 ? ` ×${q}` : '';
+        label = a.label ? `− ${cap(a.label)}${q1} (${fmtMoney(amt)})` : `− ${fmtMoney(amt)}`; break;
+      }
       case 'mul':
         total = prev * a.value; label = `× ${fmtNum(a.value)}`; break;
       case 'div':
@@ -329,6 +337,71 @@ export function interpret(text, config = {}) {
   const e = evaluate(p.actions, config);
   if (!e.ok) return { ok: false, normalized: p.normalized, steps: e.steps, result: e.result, error: e.error };
   return { ok: true, normalized: p.normalized, steps: e.steps, result: e.result, error: null };
+}
+
+const VALID_KINDS = new Set([
+  'start', 'add', 'sub', 'mul', 'div', 'addPct', 'subPct', 'mulPct', 'divPct',
+  'addTax', 'backTax', 'landing', 'marginPrice',
+]);
+
+/** Clean an untrusted actions list (e.g. from the LLM smart-parser) into
+ * something evaluate() can safely run. Drops unknown kinds and non-numeric
+ * fields, and guarantees the list starts with a 'start'. The math is still
+ * done by evaluate() — this only validates structure. */
+export function sanitizeActions(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const a of raw) {
+    if (!a || typeof a !== 'object' || !VALID_KINDS.has(a.kind)) continue;
+    const act = { kind: a.kind };
+    if (['start', 'add', 'sub', 'mul', 'div'].includes(a.kind)) {
+      const v = Number(a.value);
+      if (!Number.isFinite(v)) continue;
+      act.value = v;
+      const q = Number(a.qty);
+      if (Number.isFinite(q) && q > 0 && q !== 1) act.qty = q;
+      if (typeof a.label === 'string' && a.label.trim()) act.label = a.label.trim().slice(0, 40);
+    } else if (['addPct', 'subPct', 'mulPct', 'divPct', 'marginPrice'].includes(a.kind)) {
+      const p = Number(a.pct);
+      if (!Number.isFinite(p)) continue;
+      act.pct = p;
+    } else if (a.kind === 'addTax' || a.kind === 'backTax') {
+      const r = Number(a.rate);
+      if (Number.isFinite(r)) act.rate = r;
+    }
+    out.push(act);
+  }
+  // The evaluator requires the first action to be a 'start'.
+  if (out.length && out[0].kind !== 'start' && typeof out[0].value === 'number') {
+    out[0] = { ...out[0], kind: 'start' };
+  }
+  return out;
+}
+
+/** Human-readable one-line echo of an actions list (for the "Read as:" line). */
+export function describe(actions) {
+  if (!Array.isArray(actions)) return '';
+  const parts = [];
+  for (const a of actions) {
+    const q = Number.isFinite(a.qty) && a.qty > 1 ? `${a.qty} × ` : '';
+    switch (a.kind) {
+      case 'start': parts.push(a.label ? `${q}${a.label} ${fmtNum(a.value)}` : `${q}${fmtNum(a.value)}`); break;
+      case 'add': parts.push(`+ ${q}${a.label ? a.label + ' ' : ''}${fmtNum(a.value)}`); break;
+      case 'sub': parts.push(`− ${q}${a.label ? a.label + ' ' : ''}${fmtNum(a.value)}`); break;
+      case 'mul': parts.push(`× ${fmtNum(a.value)}`); break;
+      case 'div': parts.push(`÷ ${fmtNum(a.value)}`); break;
+      case 'addPct': parts.push(`+ ${fmtNum(a.pct)}%`); break;
+      case 'subPct': parts.push(`− ${fmtNum(a.pct)}%`); break;
+      case 'mulPct': parts.push(`× ${fmtNum(a.pct)}%`); break;
+      case 'divPct': parts.push(`÷ ${fmtNum(a.pct)}%`); break;
+      case 'addTax': parts.push('+ tax'); break;
+      case 'backTax': parts.push('out-the-door'); break;
+      case 'landing': parts.push('landing ÷3.3'); break;
+      case 'marginPrice': parts.push(`at ${fmtNum(a.pct)}% margin`); break;
+      default: break;
+    }
+  }
+  return parts.join(' ');
 }
 
 export const _internals = { wordsToNumber, normalizeText, parse };

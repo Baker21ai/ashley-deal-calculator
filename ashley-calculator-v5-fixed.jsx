@@ -2416,6 +2416,13 @@ export default function AshleyDealCalculator() {
         .calc-nl-error { color: var(--warning); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
         .calc-listening { color: var(--crimson); font-size: 13px; font-weight: 600; margin-bottom: 8px; }
         .calc-nl-echo { color: var(--muted); font-size: 13px; margin-bottom: 8px; font-style: italic; }
+        .calc-nl-tip { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+        .calc-smart-inline {
+          background: var(--surface-2); border: 1px solid var(--crimson); color: var(--crimson);
+          border-radius: var(--radius-sm); padding: 4px 10px; font-size: 12px; font-weight: 700;
+          cursor: pointer; margin-left: 4px;
+        }
+        .calc-smart-inline:disabled { opacity: 0.6; cursor: default; }
         .calc-tape {
           background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-sm);
           padding: 10px 12px; min-height: 64px; max-height: 180px; overflow-y: auto; margin-bottom: 8px;

@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
-import { evaluate, parse } from './calcEngine.js';
+import { evaluate, parse, sanitizeActions, describe } from './calcEngine.js';
 import { sttSupported, createRecognizer } from './voiceIO.js';
+import { postMathParse } from './mathParseClient.js';
 
 const formatMoney = (n) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n || 0);
@@ -34,6 +35,7 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
   const [nlError, setNlError] = useState(null);
   const [copied, setCopied] = useState(false);
   const [listening, setListening] = useState(false);
+  const [smartLoading, setSmartLoading] = useState(false);
   const recRef = useRef(null);
 
   const cfg = { taxRate };
@@ -91,6 +93,30 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
   };
   const runNL = () => runText(nl);
 
+  // Smart-parse fallback: Gemini translates the words into actions, then OUR
+  // engine does the math (exact). Used when the offline parser can't read it.
+  const runSmart = async () => {
+    const text = nl.trim();
+    if (!text) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      setNlError('Smart parse needs an internet connection.');
+      return;
+    }
+    setSmartLoading(true);
+    setNlError(null);
+    const raw = await postMathParse({ text, taxRate });
+    setSmartLoading(false);
+    const clean = sanitizeActions(raw);
+    if (!clean.length) { setNlError("Smart parse couldn't read that either — try rephrasing."); return; }
+    const check = evaluate(clean, cfg);
+    if (!check.ok) { setNlError(check.error); return; }
+    setActions(clean);
+    setEntry('');
+    setOp(null);
+    setNlError(null);
+    setNlEcho(`✨ ${describe(clean)}`);
+  };
+
   // Voice: transcribe with the browser's speech API, then parse deterministically.
   // The transcript lands in the editable field so a misheard number can be fixed.
   const toggleMic = () => {
@@ -143,11 +169,17 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
             <input
               className="calc-nl-input"
               type="text"
+              inputMode="text"
+              autoCapitalize="none"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
+              enterKeyHint="go"
               placeholder="Type or say: couch 1001, loveseat 500, +tax"
               value={nl}
               onChange={(e) => { setNl(e.target.value); setNlError(null); }}
               onKeyDown={(e) => { if (e.key === 'Enter') runNL(); }}
-              aria-label="Type a math expression"
+              aria-label="Type or dictate a math expression"
             />
             {sttSupported && (
               <button
@@ -159,12 +191,23 @@ export default function Calculator({ taxRate = 9.125, onClose, onUsePrice, onUse
                 {listening ? '■' : '🎤'}
               </button>
             )}
-            <button className="calc-nl-go" onClick={runNL} disabled={!nl.trim()}>Go</button>
+            <button className="calc-nl-go" onClick={runNL} disabled={!nl.trim() || smartLoading}>Go</button>
           </div>
+          {/* On iOS Safari (no Web Speech), point users at the keyboard's dictation mic. */}
+          {!sttSupported && (
+            <div className="calc-nl-tip">🎤 Tip: tap the mic on your keyboard to dictate, then press Go.</div>
+          )}
           {listening && (
             <div className="calc-listening">🎙️ Listening… e.g. “couch ten ninety nine, loveseat five hundred, plus tax”</div>
           )}
-          {nlError && <div className="calc-nl-error">⚠ {nlError}</div>}
+          {nlError && (
+            <div className="calc-nl-error">
+              ⚠ {nlError}{' '}
+              <button className="calc-smart-inline" onClick={runSmart} disabled={smartLoading || !nl.trim()}>
+                {smartLoading ? 'Thinking…' : '✨ Try smart parse'}
+              </button>
+            </div>
+          )}
           {nlEcho && !nlError && <div className="calc-nl-echo">Read as: {nlEcho}</div>}
 
           {/* Work tape */}
